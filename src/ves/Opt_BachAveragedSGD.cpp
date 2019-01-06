@@ -185,6 +185,7 @@ private:
   unsigned int combinedgradient_wstride_;
   std::vector<OFile*> combinedgradientOFiles_;
   double decaying_aver_tau_;
+  std::vector<double> damping_;
 private:
   CoeffsVector& CombinedGradient(const unsigned int c_id) const {return *combinedgradient_pntrs_[c_id];}
   double getAverDecay() const;
@@ -212,6 +213,7 @@ void Opt_BachAveragedSGD::registerKeywords(Keywords& keys) {
   keys.add("hidden","COMBINED_GRADIENT_OUTPUT","how often the combined gradient should be written to file. This parameter is given as the number of bias iterations. It is by default 100 if COMBINED_GRADIENT_FILE is specficed");
   keys.add("hidden","COMBINED_GRADIENT_FMT","specify format for combined gradient file(s) (useful for decrease the number of digits in regtests)");
   keys.add("optional","EXP_DECAYING_AVER","calculate the averaged coefficients using exponentially decaying averaging using the decaying constant given here in the number of iterations");
+  keys.addFlag("DAMPING_ON",false,"use an AdaGrad-like damping factor to adaptively rescale the learning rate");
 }
 
 
@@ -279,6 +281,16 @@ Opt_BachAveragedSGD::Opt_BachAveragedSGD(const ActionOptions&ao):
     }
   }
   //
+  bool damping_on=false;
+  parseFlag("DAMPING_ON",damping_on);
+  if (damping_on)
+  {
+    unsigned tot_coef=0;//totalNumberOfCoeffs() is not available from here
+    for(unsigned c_id=0; c_id<numberOfCoeffsSets(); c_id++)
+      tot_coef+=Coeffs(c_id).numberOfCoeffs();
+    damping_.resize(tot_coef,1e-8);
+    log.printf("  Using AdaGrad-like damping\n");
+  }
 
   turnOnHessian();
   checkRead();
@@ -294,7 +306,18 @@ void Opt_BachAveragedSGD::coeffsUpdate(const unsigned int c_id) {
   }
   //
   double aver_decay = getAverDecay();
-  AuxCoeffs(c_id) += - StepSize(c_id)*CoeffsMask(c_id) * ( Gradient(c_id) + Hessian(c_id)*(AuxCoeffs(c_id)-Coeffs(c_id)) );
+  if (damping_.size()>0)
+  {
+    const unsigned n=numberOfCoeffsSets();
+    for (unsigned i=0; i<Coeffs(c_id).numberOfCoeffs(); i++)
+    {
+      const double increment_i=Gradient(c_id).getValue(i)+(Hessian(c_id)*(AuxCoeffs(c_id)-Coeffs(c_id))).getValue(i);//FIXME this is not efficient!
+      damping_[c_id*n+i]+=increment_i*increment_i;
+      AuxCoeffs(c_id).addToValue(i, - StepSize(c_id)*CoeffsMask(c_id).getValue(i)/std::sqrt(damping_[c_id*n+i])*increment_i);
+    }
+  }
+  else
+    AuxCoeffs(c_id) += - StepSize(c_id)*CoeffsMask(c_id) * ( Gradient(c_id) + Hessian(c_id)*(AuxCoeffs(c_id)-Coeffs(c_id)) );
   //AuxCoeffs() = AuxCoeffs() - StepSize() * ( Gradient() + Hessian()*(AuxCoeffs()-Coeffs()) );
   Coeffs(c_id) += aver_decay * ( AuxCoeffs(c_id)-Coeffs(c_id) );
 }
