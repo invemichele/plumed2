@@ -178,6 +178,7 @@ private:
   double old_KDEnorm_;
   double old_Zed_;
   std::vector<kernel> delta_kernels_;
+//  std::vector<kernel> current_kernels_;
 
   OFile stateOfile_;
   int wStateStride_;
@@ -767,6 +768,8 @@ OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
   {
     addComponent("work");
     componentIsNotPeriodic("work");
+    addComponent("instwork");
+    componentIsNotPeriodic("instwork");
   }
   if(nlist_)
   {
@@ -891,15 +894,19 @@ void OPESmetad<mode>::calculate()
   for(unsigned i=0; i<ncv_; i++)
     setOutputForce(i,-kbt_*bias_prefactor_/(prob/Zed_+epsilon_)*der_prob[i]/Zed_);
 
-//calculate work
-  if(calc_work_)
-  {
-    double tot_delta=0;
-    for(unsigned d=0; d<delta_kernels_.size(); d++)
-      tot_delta+=evaluateKernel(delta_kernels_[d],cv);
-    const double old_prob=(prob*KDEnorm_-tot_delta)/old_KDEnorm_;
-    work_+=current_bias_-kbt_*bias_prefactor_*std::log(old_prob/old_Zed_+epsilon_);
-  }
+////calculate work
+//  if(calc_work_)
+//  {
+//    double tot_delta=0;
+//    for(unsigned d=0; d<delta_kernels_.size(); d++)
+//      tot_delta+=evaluateKernel(delta_kernels_[d],cv);
+////    for(unsigned d=0; d<current_kernels_.size(); d++)
+////      tot_delta+=evaluateKernel(current_kernels_[d],cv);
+//    const double old_prob=(prob*KDEnorm_-tot_delta)/old_KDEnorm_;
+//    work_+=current_bias_-kbt_*bias_prefactor_*std::log(old_prob/old_Zed_+epsilon_);
+////    const double uprob_e=prob*KDEnorm_+epsilon_;
+////    work_-=kbt_*bias_prefactor_*std::log1p(-tot_delta/uprob_e);
+//  }
 
   afterCalculate_=true;
 }
@@ -938,15 +945,15 @@ void OPESmetad<mode>::update()
     afterCalculate_=false; //if needed implementation can be changed to avoid this
 
     //work done by the bias in one iteration uses as zero reference a point at inf, so that the work is always positive
-    if(calc_work_)
-    {
-      const double min_shift=kbt_*bias_prefactor_*std::log(old_Zed_/Zed_*old_KDEnorm_/KDEnorm_);
-      getPntrToComponent("work")->set(work_-stride_*min_shift);
-      work_=0;
-    }
-    old_Zed_=Zed_;
+//    if(calc_work_)
+//    {
+//      getPntrToComponent("work")->set(work_);
+//      work_=0;
+//      old_Zed_=Zed_;
+//    }
     old_KDEnorm_=KDEnorm_;
     delta_kernels_.clear();
+//    current_kernels_.clear();
     unsigned old_nker=kernels_.size();
 
     //get new kernel height
@@ -1176,6 +1183,27 @@ void OPESmetad<mode>::update()
       Zed_=sum_uprob/KDEnorm_/kernels_.size();
       getPntrToComponent("zed")->set(Zed_);
     }
+//calc work
+    if(calc_work_)
+    {
+      //get cv (again?!?)
+      std::vector<double> cv(ncv_);
+      for(unsigned i=0; i<ncv_; i++)
+        cv[i]=getArgument(i);
+      //calc new bias value
+      double prob=0;
+      for(unsigned k=rank_; k<kernels_.size(); k+=NumParallel_)
+        prob+=evaluateKernel(kernels_[k],cv);
+      if(NumParallel_>1)
+        comm.Sum(prob);
+      prob/=KDEnorm_;
+      const double inst_work=kbt_*bias_prefactor_*std::log(prob/Zed_+epsilon_)-current_bias_;
+      work_+=inst_work;
+  //    const double uprob_e=prob*KDEnorm_+epsilon_;
+  //    work_-=kbt_*bias_prefactor_*std::log1p(-tot_delta/uprob_e);
+      getPntrToComponent("work")->set(work_);
+      getPntrToComponent("instwork")->set(inst_work);
+    }
   }
 
 //dump state if requested
@@ -1259,6 +1287,7 @@ void OPESmetad<mode>::addKernel(const kernel &new_kernel,const bool write_to_fil
 template <class mode>
 void OPESmetad<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma,const bool write_to_file)
 {
+//  current_kernels_.emplace_back(height,center,sigma);
   bool no_match=true;
   if(threshold2_!=0)
   {
