@@ -25,13 +25,13 @@ along with plumed.  If not, see <http://www.gnu.org/licenses/>.
 namespace PLMD {
 namespace opes {
 
-//+PLUMEDOC OPES_BIAS OPES_METAD
+//+PLUMEDOC OPES_BIAS OPES_METAD_JARZ
 /*
 On-the-fly probability enhanced sampling (\ref OPES "OPES") with metadynamics-like target distribution \cite Invernizzi2020rethinking.
 
-This OPES_METAD action samples target distributions defined via their marginal \f$p^{\text{tg}}(\mathbf{s})\f$ over some collective variables (CVs), \f$\mathbf{s}=\mathbf{s}(\mathbf{x})\f$.
-By default OPES_METAD targets the well-tempered distribution, \f$p^{\text{WT}}(\mathbf{s})\propto [P(\mathbf{s})]^{1/\gamma}\f$, where \f$\gamma\f$ is known as BIASFACTOR.
-Similarly to \ref METAD, OPES_METAD optimizes the bias on-the-fly, with a given PACE.
+This OPES_METAD_JARZ action samples target distributions defined via their marginal \f$p^{\text{tg}}(\mathbf{s})\f$ over some collective variables (CVs), \f$\mathbf{s}=\mathbf{s}(\mathbf{x})\f$.
+By default OPES_METAD_JARZ targets the well-tempered distribution, \f$p^{\text{WT}}(\mathbf{s})\propto [P(\mathbf{s})]^{1/\gamma}\f$, where \f$\gamma\f$ is known as BIASFACTOR.
+Similarly to \ref METAD, OPES_METAD_JARZ optimizes the bias on-the-fly, with a given PACE.
 It does so by reweighting via kernel density estimation the unbiased distribution in the CV space, \f$P(\mathbf{s})\f$.
 A compression algorithm is used to prevent the number of kernels from growing linearly with the simulation time.
 The bias at step \f$n\f$ is
@@ -40,7 +40,7 @@ V_n(\mathbf{s}) = (1-1/\gamma)\frac{1}{\beta}\log\left(\frac{\tilde{P}_n(\mathbf
 \f]
 See Ref.\cite Invernizzi2020rethinking for a complete description of the method.
 
-As an intuitive picture, rather than gradually filling the metastable basins, OPES_METAD quickly tries to get a coarse idea of the full free energy surface (FES), and then slowly refines its details.
+As an intuitive picture, rather than gradually filling the metastable basins, OPES_METAD_JARZ quickly tries to get a coarse idea of the full free energy surface (FES), and then slowly refines its details.
 It has a fast initial exploration phase, and then becomes extremely conservative and does not significantly change the shape of the deposited bias any more, reaching a regime of quasi-static bias.
 For this reason, it is possible to use standard umbrella sampling reweighting (see \ref REWEIGHT_BIAS) to analyse the trajectory.
 At <a href="https://github.com/invemichele/opes/tree/master/postprocessing">this link</a> you can find some python scripts that work in a similar way to \ref sum_hills, but the preferred way to obtain a FES with OPES is via reweighting.
@@ -48,12 +48,12 @@ The estimated \f$c(t)\f$ is printed for reference only, since it should converge
 This \f$c(t)\f$ should NOT be used for reweighting.
 Similarly, the \f$Z_n\f$ factor is printed only for reference, and it should converge when no new region of the CV-space is explored.
 
-Notice that OPES_METAD is more sensitive to degenerate CVs than \ref METAD.
-If the employed CVs map different metastable basins onto the same CV-space region, then OPES_METAD will remain stuck rather than completely reshaping the bias.
+Notice that OPES_METAD_JARZ is more sensitive to degenerate CVs than \ref METAD.
+If the employed CVs map different metastable basins onto the same CV-space region, then OPES_METAD_JARZ will remain stuck rather than completely reshaping the bias.
 This can be useful to diagnose problems with your collective variable.
-If it is not possible to improve the set of CVs and remove this degeneracy, then you might instead consider to use \ref OPES_METAD_EXPLORE or \ref METAD.
+If it is not possible to improve the set of CVs and remove this degeneracy, then you might instead consider to use \ref OPES_METAD_EXPLORE_JARZ or \ref METAD.
 In this way you will be able to obtain an estimate of the FES, but be aware that you most likely will not reach convergence and thus this estimate will be subjected to systematic errors (see e.g. Fig.3 in \cite Pietrucci2017review).
-On the contrary, if your CVs are not degenerate but only suboptimal, you should converge faster by using OPES_METAD instead of \ref METAD \cite Invernizzi2020rethinking.
+On the contrary, if your CVs are not degenerate but only suboptimal, you should converge faster by using OPES_METAD_JARZ instead of \ref METAD \cite Invernizzi2020rethinking.
 
 The parameter BARRIER should be set to be at least equal to the highest free energy barrier you wish to overcome.
 If it is much lower than that, you will not cross the barrier, if it is much higher, convergence might take a little longer.
@@ -78,7 +78,7 @@ The following is a minimal working example:
 
 \plumedfile
 cv: DISTANCE ATOMS=1,2
-opes: OPES_METAD ARG=cv PACE=100 BARRIER=40
+opes: OPES_METAD_JARZ ARG=cv PACE=100 BARRIER=40
 PRINT STRIDE=100 FILE=COLVAR ARG=*
 \endplumedfile
 
@@ -88,7 +88,7 @@ Another more articulated one:
 phi: TORSION ATOMS=5,7,9,15
 psi: TORSION ATOMS=7,9,15,17
 
-opes: OPES_METAD ...
+opes: OPES_METAD_JARZ ...
   FILE=Kernels.data
   TEMP=300
   ARG=phi,psi
@@ -111,7 +111,7 @@ PRINT FMT=%g STRIDE=500 FILE=Colvar.data ARG=phi,psi,opes.*
 //+ENDPLUMEDOC
 
 template <class mode>
-class OPESmetad : public bias::Bias {
+class OPESmetad_jarz : public bias::Bias {
 
 private:
   bool isFirstStep_;
@@ -178,49 +178,50 @@ private:
   double old_KDEnorm_;
   double old_Zed_;
   std::vector<kernel> delta_kernels_;
+//  std::vector<kernel> current_kernels_;
 
   OFile stateOfile_;
   int wStateStride_;
   bool storeOldStates_;
 
   double getProbAndDerivatives(const std::vector<double>&,std::vector<double>&);
-  void addKernel(const double,const std::vector<double>&,const std::vector<double>&);
-  void addKernel(const double,const std::vector<double>&,const std::vector<double>&,const double); //also print to file
+  void addKernel(const kernel&,const bool);
+  void addKernel(const double,const std::vector<double>&,const std::vector<double>&,const bool);
   unsigned getMergeableKernel(const std::vector<double>&,const unsigned);
   void updateNlist(const std::vector<double>&);
   void dumpStateToFile();
 
 public:
-  explicit OPESmetad(const ActionOptions&);
+  explicit OPESmetad_jarz(const ActionOptions&);
   void calculate() override;
   void update() override;
   static void registerKeywords(Keywords& keys);
 };
 
 struct convergence { static const bool explore=false; };
-typedef OPESmetad<convergence> OPESmetad_c;
-PLUMED_REGISTER_ACTION(OPESmetad_c,"OPES_METAD")
+typedef OPESmetad_jarz<convergence> OPESmetad_jarz_c;
+PLUMED_REGISTER_ACTION(OPESmetad_jarz_c,"OPES_METAD_JARZ")
 
-//OPES_METAD_EXPLORE is very similar from the point of view of the code,
+//OPES_METAD_EXPLORE_JARZ is very similar from the point of view of the code,
 //but conceptually it is better to make it a separate BIAS action
 
-//+PLUMEDOC OPES_BIAS OPES_METAD_EXPLORE
+//+PLUMEDOC OPES_BIAS OPES_METAD_EXPLORE_JARZ
 /*
 On-the-fly probability enhanced sampling (\ref OPES "OPES") with well-tempered target distribution, exploration mode \cite future_paper .
 
-This OPES_METAD_EXPLORE action samples the well-tempered target distribution, that is defined via its marginal \f$p^{\text{WT}}(\mathbf{s})\propto [P(\mathbf{s})]^{1/\gamma}\f$ over some collective variables (CVs), \f$\mathbf{s}=\mathbf{s}(\mathbf{x})\f$.
-While \ref OPES_METAD does so by estimating the unbiased distribution \f$P(\mathbf{s})\f$, OPES_METAD_EXPLORE instead estimates on-the-fly the target \f$p^{\text{WT}}(\mathbf{s})\f$ and uses it to define the bias.
+This OPES_METAD_EXPLORE_JARZ action samples the well-tempered target distribution, that is defined via its marginal \f$p^{\text{WT}}(\mathbf{s})\propto [P(\mathbf{s})]^{1/\gamma}\f$ over some collective variables (CVs), \f$\mathbf{s}=\mathbf{s}(\mathbf{x})\f$.
+While \ref OPES_METAD_JARZ does so by estimating the unbiased distribution \f$P(\mathbf{s})\f$, OPES_METAD_EXPLORE_JARZ instead estimates on-the-fly the target \f$p^{\text{WT}}(\mathbf{s})\f$ and uses it to define the bias.
 The bias at step \f$n\f$ is
 \f[
 V_n(\mathbf{s}) = (\gamma-1)\frac{1}{\beta}\log\left(\frac{\tilde{P}^{\text{WT}}_n(\mathbf{s})}{Z_n}+\epsilon\right)\, .
 \f]
 See Ref.\cite future_paper for a complete description of the method.
 
-Compared to \ref OPES_METAD, OPES_METAD_EXPLORE is more similar to \ref METAD, because it allows the bias to vary significantly, thus enhancing exploration.
+Compared to \ref OPES_METAD_JARZ, OPES_METAD_EXPLORE_JARZ is more similar to \ref METAD, because it allows the bias to vary significantly, thus enhancing exploration.
 This goes at the expenses of a possibly slower convergence of the reweight estimate.
 It is useful to look around when you have no idea of the BARRIER, or if you want to quickly test the effectiveness of a new CV, and see if it is degenerate or not.
 
-Like \ref OPES_METAD, also OPES_METAD_EXPLORE uses a kernel density estimation with an on-the-fly compression algorithm.
+Like \ref OPES_METAD_JARZ, also OPES_METAD_EXPLORE_JARZ uses a kernel density estimation with an on-the-fly compression algorithm.
 The only difference is that it does not perfom reweight, since it estimates the sampled distribution and not the unbiased one.
 
 \par Examples
@@ -229,20 +230,20 @@ The following is a minimal working example:
 
 \plumedfile
 cv: DISTANCE ATOMS=1,2
-opes: OPES_METAD_EXPLORE ARG=cv PACE=500 BARRIER=40
+opes: OPES_METAD_EXPLORE_JARZ ARG=cv PACE=500 BARRIER=40
 PRINT STRIDE=100 FILE=COLVAR ARG=cv,opes.*
 \endplumedfile
 */
 //+ENDPLUMEDOC
 
 struct exploration { static const bool explore=true; };
-typedef OPESmetad<exploration> OPESmetad_e;
+typedef OPESmetad_jarz<exploration> OPESmetad_jarz_e;
 // For some reason, this is not seen correctly by cppcheck
 // cppcheck-suppress unknownMacro
-PLUMED_REGISTER_ACTION(OPESmetad_e,"OPES_METAD_EXPLORE")
+PLUMED_REGISTER_ACTION(OPESmetad_jarz_e,"OPES_METAD_EXPLORE_JARZ")
 
 template <class mode>
-void OPESmetad<mode>::registerKeywords(Keywords& keys)
+void OPESmetad_jarz<mode>::registerKeywords(Keywords& keys)
 {
   Bias::registerKeywords(keys);
   keys.use("ARG");
@@ -294,7 +295,7 @@ void OPESmetad<mode>::registerKeywords(Keywords& keys)
 }
 
 template <class mode>
-OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
+OPESmetad_jarz<mode>::OPESmetad_jarz(const ActionOptions& ao)
   : PLUMED_BIAS_INIT(ao)
   , isFirstStep_(true)
   , afterCalculate_(false)
@@ -654,7 +655,7 @@ OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
           ifile.scanField("height",height);
           ifile.scanField("logweight",logweight);
           ifile.scanField();
-          addKernel(height,center,sigma);
+          addKernel(height,center,sigma,false);
           const double weight=std::exp(logweight);
           sum_weights_+=weight; //this sum is slightly inaccurate, because when printing some precision is lost
           sum_weights2_+=weight*weight;
@@ -767,6 +768,8 @@ OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
   {
     addComponent("work");
     componentIsNotPeriodic("work");
+    addComponent("instwork");
+    componentIsNotPeriodic("instwork");
   }
   if(nlist_)
   {
@@ -854,7 +857,7 @@ OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
 }
 
 template <class mode>
-void OPESmetad<mode>::calculate()
+void OPESmetad_jarz<mode>::calculate()
 {
 //get cv
   std::vector<double> cv(ncv_);
@@ -891,21 +894,25 @@ void OPESmetad<mode>::calculate()
   for(unsigned i=0; i<ncv_; i++)
     setOutputForce(i,-kbt_*bias_prefactor_/(prob/Zed_+epsilon_)*der_prob[i]/Zed_);
 
-//calculate work
-  if(calc_work_)
-  {
-    double tot_delta=0;
-    for(unsigned d=0; d<delta_kernels_.size(); d++)
-      tot_delta+=evaluateKernel(delta_kernels_[d],cv);
-    const double old_prob=(prob*KDEnorm_-tot_delta)/old_KDEnorm_;
-    work_+=current_bias_-kbt_*bias_prefactor_*std::log(old_prob/old_Zed_+epsilon_);
-  }
+////calculate work
+//  if(calc_work_)
+//  {
+//    double tot_delta=0;
+//    for(unsigned d=0; d<delta_kernels_.size(); d++)
+//      tot_delta+=evaluateKernel(delta_kernels_[d],cv);
+////    for(unsigned d=0; d<current_kernels_.size(); d++)
+////      tot_delta+=evaluateKernel(current_kernels_[d],cv);
+//    const double old_prob=(prob*KDEnorm_-tot_delta)/old_KDEnorm_;
+//    work_+=current_bias_-kbt_*bias_prefactor_*std::log(old_prob/old_Zed_+epsilon_);
+////    const double uprob_e=prob*KDEnorm_+epsilon_;
+////    work_-=kbt_*bias_prefactor_*std::log1p(-tot_delta/uprob_e);
+//  }
 
   afterCalculate_=true;
 }
 
 template <class mode>
-void OPESmetad<mode>::update()
+void OPESmetad_jarz<mode>::update()
 {
   if(isFirstStep_)//same in MetaD, useful for restarts?
   {
@@ -934,19 +941,19 @@ void OPESmetad<mode>::update()
 //do update
   if(getStep()%stride_==0)
   {
-    plumed_massert(afterCalculate_,"OPESmetad::update() must be called after OPESmetad::calculate() to work properly");
+    plumed_massert(afterCalculate_,"OPESmetad_jarz::update() must be called after OPESmetad_jarz::calculate() to work properly");
     afterCalculate_=false; //if needed implementation can be changed to avoid this
 
     //work done by the bias in one iteration uses as zero reference a point at inf, so that the work is always positive
-    if(calc_work_)
-    {
-      const double min_shift=kbt_*bias_prefactor_*std::log(old_Zed_/Zed_*old_KDEnorm_/KDEnorm_);
-      getPntrToComponent("work")->set(work_-stride_*min_shift);
-      work_=0;
-    }
-    old_Zed_=Zed_;
+//    if(calc_work_)
+//    {
+//      getPntrToComponent("work")->set(work_);
+//      work_=0;
+//      old_Zed_=Zed_;
+//    }
     old_KDEnorm_=KDEnorm_;
     delta_kernels_.clear();
+//    current_kernels_.clear();
     unsigned old_nker=kernels_.size();
 
     //get new kernel height
@@ -1046,24 +1053,21 @@ void OPESmetad<mode>::update()
 
     //add new kernel(s)
     if(NumWalkers_==1)
-      addKernel(height,center,sigma,current_bias_/kbt_);
+      addKernel(height,center,sigma,true);
     else
     {
       std::vector<double> all_height(NumWalkers_,0.0);
       std::vector<double> all_center(NumWalkers_*ncv_,0.0);
       std::vector<double> all_sigma(NumWalkers_*ncv_,0.0);
-      std::vector<double> all_logweight(NumWalkers_,0.0);
       if(comm.Get_rank()==0)
       {
-        multi_sim_comm.Allgather(height,all_height);
+        multi_sim_comm.Allgather(height,all_height); //heights were communicated also before...
         multi_sim_comm.Allgather(center,all_center);
         multi_sim_comm.Allgather(sigma,all_sigma);
-        multi_sim_comm.Allgather(current_bias_/kbt_,all_logweight);
       }
       comm.Bcast(all_height,0);
       comm.Bcast(all_center,0);
       comm.Bcast(all_sigma,0);
-      comm.Bcast(all_logweight,0);
       if(nlist_)
       { //gather all the nlist_index_, so merging can be done using it
         std::vector<int> all_nlist_size(NumWalkers_);
@@ -1093,7 +1097,7 @@ void OPESmetad<mode>::update()
       {
         std::vector<double> center_w(all_center.begin()+ncv_*w,all_center.begin()+ncv_*(w+1));
         std::vector<double> sigma_w(all_sigma.begin()+ncv_*w,all_sigma.begin()+ncv_*(w+1));
-        addKernel(all_height[w],center_w,sigma_w,all_logweight[w]);
+        addKernel(all_height[w],center_w,sigma_w,true);
       }
     }
     getPntrToComponent("nker")->set(kernels_.size());
@@ -1179,6 +1183,27 @@ void OPESmetad<mode>::update()
       Zed_=sum_uprob/KDEnorm_/kernels_.size();
       getPntrToComponent("zed")->set(Zed_);
     }
+//calc work
+    if(calc_work_)
+    {
+      //get cv (again?!?)
+      std::vector<double> cv(ncv_);
+      for(unsigned i=0; i<ncv_; i++)
+        cv[i]=getArgument(i);
+      //calc new bias value
+      double prob=0;
+      for(unsigned k=rank_; k<kernels_.size(); k+=NumParallel_)
+        prob+=evaluateKernel(kernels_[k],cv);
+      if(NumParallel_>1)
+        comm.Sum(prob);
+      prob/=KDEnorm_;
+      const double inst_work=kbt_*bias_prefactor_*std::log(prob/Zed_+epsilon_)-current_bias_;
+      work_+=inst_work;
+  //    const double uprob_e=prob*KDEnorm_+epsilon_;
+  //    work_-=kbt_*bias_prefactor_*std::log1p(-tot_delta/uprob_e);
+      getPntrToComponent("work")->set(work_);
+      getPntrToComponent("instwork")->set(inst_work);
+    }
   }
 
 //dump state if requested
@@ -1187,7 +1212,7 @@ void OPESmetad<mode>::update()
 }
 
 template <class mode>
-double OPESmetad<mode>::getProbAndDerivatives(const std::vector<double>& cv,std::vector<double>& der_prob)
+double OPESmetad_jarz<mode>::getProbAndDerivatives(const std::vector<double>& cv,std::vector<double>& der_prob)
 {
   double prob=0.0;
   if(!nlist_)
@@ -1254,8 +1279,15 @@ double OPESmetad<mode>::getProbAndDerivatives(const std::vector<double>& cv,std:
 }
 
 template <class mode>
-void OPESmetad<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma)
+void OPESmetad_jarz<mode>::addKernel(const kernel &new_kernel,const bool write_to_file)
 {
+  addKernel(new_kernel.height,new_kernel.center,new_kernel.sigma,write_to_file);
+}
+
+template <class mode>
+void OPESmetad_jarz<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma,const bool write_to_file)
+{
+//  current_kernels_.emplace_back(height,center,sigma);
   bool no_match=true;
   if(threshold2_!=0)
   {
@@ -1309,25 +1341,23 @@ void OPESmetad<mode>::addKernel(const double height,const std::vector<double>& c
     if(nlist_)
       nlist_index_.push_back(kernels_.size()-1);
   }
-}
 
-template <class mode>
-void OPESmetad<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma,const double logweight)
-{
-  addKernel(height,center,sigma);
 //write to file
-  kernelsOfile_.printField("time",getTime());
-  for(unsigned i=0; i<ncv_; i++)
-    kernelsOfile_.printField(getPntrToArgument(i),center[i]);
-  for(unsigned i=0; i<ncv_; i++)
-    kernelsOfile_.printField("sigma_"+getPntrToArgument(i)->getName(),sigma[i]);
-  kernelsOfile_.printField("height",height);
-  kernelsOfile_.printField("logweight",logweight);
-  kernelsOfile_.printField();
+  if(write_to_file)
+  {
+    kernelsOfile_.printField("time",getTime());
+    for(unsigned i=0; i<ncv_; i++)
+      kernelsOfile_.printField(getPntrToArgument(i),center[i]);
+    for(unsigned i=0; i<ncv_; i++)
+      kernelsOfile_.printField("sigma_"+getPntrToArgument(i)->getName(),sigma[i]);
+    kernelsOfile_.printField("height",height);
+    kernelsOfile_.printField("logweight",current_bias_/kbt_);
+    kernelsOfile_.printField();
+  }
 }
 
 template <class mode>
-unsigned OPESmetad<mode>::getMergeableKernel(const std::vector<double>& giver_center,const unsigned giver_k)
+unsigned OPESmetad_jarz<mode>::getMergeableKernel(const std::vector<double>& giver_center,const unsigned giver_k)
 { //returns kernels_.size() if no match is found
   unsigned min_k=kernels_.size();
   double min_norm2=threshold2_;
@@ -1415,7 +1445,7 @@ unsigned OPESmetad<mode>::getMergeableKernel(const std::vector<double>& giver_ce
 }
 
 template <class mode>
-void OPESmetad<mode>::updateNlist(const std::vector<double>& new_center)
+void OPESmetad_jarz<mode>::updateNlist(const std::vector<double>& new_center)
 {
   if(kernels_.size()==0) //no need to check for neighbors
     return;
@@ -1506,7 +1536,7 @@ void OPESmetad<mode>::updateNlist(const std::vector<double>& new_center)
 }
 
 template <class mode>
-void OPESmetad<mode>::dumpStateToFile()
+void OPESmetad_jarz<mode>::dumpStateToFile()
 {
 //gather adaptive sigma info if needed
 //doing this while writing to file can lead to misterious slowdowns
@@ -1621,7 +1651,7 @@ void OPESmetad<mode>::dumpStateToFile()
 }
 
 template <class mode>
-inline double OPESmetad<mode>::evaluateKernel(const kernel& G,const std::vector<double>& x) const
+inline double OPESmetad_jarz<mode>::evaluateKernel(const kernel& G,const std::vector<double>& x) const
 { //NB: cannot be a method of kernel class, because uses external variables (for cutoff)
   double norm2=0;
   for(unsigned i=0; i<ncv_; i++)
@@ -1635,7 +1665,7 @@ inline double OPESmetad<mode>::evaluateKernel(const kernel& G,const std::vector<
 }
 
 template <class mode>
-inline double OPESmetad<mode>::evaluateKernel(const kernel& G,const std::vector<double>& x, std::vector<double>& acc_der, std::vector<double>& dist)
+inline double OPESmetad_jarz<mode>::evaluateKernel(const kernel& G,const std::vector<double>& x, std::vector<double>& acc_der, std::vector<double>& dist)
 { //NB: cannot be a method of kernel class, because uses external variables (for cutoff)
   double norm2=0;
   for(unsigned i=0; i<ncv_; i++)
@@ -1652,7 +1682,7 @@ inline double OPESmetad<mode>::evaluateKernel(const kernel& G,const std::vector<
 }
 
 template <class mode>
-inline void OPESmetad<mode>::mergeKernels(kernel& k1,const kernel& k2)
+inline void OPESmetad_jarz<mode>::mergeKernels(kernel& k1,const kernel& k2)
 {
   const double h=k1.height+k2.height;
   for(unsigned i=0; i<k1.center.size(); i++)
