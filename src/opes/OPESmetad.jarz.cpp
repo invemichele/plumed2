@@ -116,6 +116,7 @@ class OPESmetad_jarz : public bias::Bias {
 private:
   bool isFirstStep_;
   bool afterCalculate_;
+  bool observers_mpi_;
   unsigned NumOMP_;
   unsigned NumParallel_;
   unsigned rank_;
@@ -178,15 +179,14 @@ private:
   double old_KDEnorm_;
   double old_Zed_;
   std::vector<kernel> delta_kernels_;
-//  std::vector<kernel> current_kernels_;
 
   OFile stateOfile_;
   int wStateStride_;
   bool storeOldStates_;
 
   double getProbAndDerivatives(const std::vector<double>&,std::vector<double>&);
-  void addKernel(const kernel&,const bool);
-  void addKernel(const double,const std::vector<double>&,const std::vector<double>&,const bool);
+  void addKernel(const double,const std::vector<double>&,const std::vector<double>&);
+  void addKernel(const double,const std::vector<double>&,const std::vector<double>&,const double); //also print to file
   unsigned getMergeableKernel(const std::vector<double>&,const unsigned);
   void updateNlist(const std::vector<double>&);
   void dumpStateToFile();
@@ -279,6 +279,7 @@ void OPESmetad_jarz<mode>::registerKeywords(Keywords& keys)
 //miscellaneous
   keys.addFlag("CALC_WORK",false,"calculate the work done by the bias between each update");
   keys.addFlag("WALKERS_MPI",false,"switch on MPI version of multiple walkers");
+  keys.addFlag("OBSERVERS_MPI",false,"the other walkers do not deposit bias. Activates WALKERS_MPI");
   keys.addFlag("SERIAL",false,"perform calculations in serial");
   keys.use("RESTART");
   keys.use("UPDATE_FROM");
@@ -289,7 +290,8 @@ void OPESmetad_jarz<mode>::registerKeywords(Keywords& keys)
   keys.addOutputComponent("zed","default","estimate of \\f$Z_n\\f$, should become flat as no new CV-space region is explored");
   keys.addOutputComponent("neff","default","effective sample size");
   keys.addOutputComponent("nker","default","total number of compressed kernels used to represent the bias");
-  keys.addOutputComponent("work","CALC_WORK","work done by the last kernel deposited");
+  keys.addOutputComponent("instwork","CALC_WORK","work done by the last kernel deposited");
+  keys.addOutputComponent("accwork","CALC_WORK","cumulative work done since the beginning");
   keys.addOutputComponent("nlker","NLIST","number of kernels in the neighbor list");
   keys.addOutputComponent("nlsteps","NLIST","number of steps from last neighbor list update");
 }
@@ -476,6 +478,9 @@ OPESmetad_jarz<mode>::OPESmetad_jarz(const ActionOptions& ao)
 //multiple walkers //TODO implement also external mw for cp2k
   bool walkers_mpi=false;
   parseFlag("WALKERS_MPI",walkers_mpi);
+  parseFlag("OBSERVERS_MPI",observers_mpi_);
+  if(observers_mpi_)
+    walkers_mpi=true;
   if(walkers_mpi)
   {
     if(comm.Get_rank()==0)//multi_sim_comm works on first rank only
@@ -752,6 +757,13 @@ OPESmetad_jarz<mode>::OPESmetad_jarz(const ActionOptions& ao)
   old_Zed_=Zed_;
 
 //add and set output components
+  if(calc_work_)
+  {
+    addComponent("instwork");
+    componentIsNotPeriodic("instwork");
+    addComponent("accwork");
+    componentIsNotPeriodic("accwork");
+  }
   addComponent("rct");
   componentIsNotPeriodic("rct");
   getPntrToComponent("rct")->set(kbt_*std::log(sum_weights_/counter_));
@@ -764,13 +776,6 @@ OPESmetad_jarz<mode>::OPESmetad_jarz(const ActionOptions& ao)
   addComponent("nker");
   componentIsNotPeriodic("nker");
   getPntrToComponent("nker")->set(kernels_.size());
-  if(calc_work_)
-  {
-    addComponent("work");
-    componentIsNotPeriodic("work");
-    addComponent("instwork");
-    componentIsNotPeriodic("instwork");
-  }
   if(nlist_)
   {
     addComponent("nlker");
@@ -839,6 +844,8 @@ OPESmetad_jarz<mode>::OPESmetad_jarz(const ActionOptions& ao)
     log.printf("    number of walkers: %u\n",NumWalkers_);
     log.printf("    walker rank: %u\n",walker_rank_);
   }
+  if(observers_mpi_)
+    log.printf(" -- OBSERVERS_MPI: only first walker deposits bias\n");
   int mw_warning=0;
   if(!walkers_mpi && comm.Get_rank()==0 && multi_sim_comm.Get_size()>(int)NumWalkers_)
     mw_warning=1;
@@ -894,19 +901,8 @@ void OPESmetad_jarz<mode>::calculate()
   for(unsigned i=0; i<ncv_; i++)
     setOutputForce(i,-kbt_*bias_prefactor_/(prob/Zed_+epsilon_)*der_prob[i]/Zed_);
 
-////calculate work
-//  if(calc_work_)
-//  {
-//    double tot_delta=0;
-//    for(unsigned d=0; d<delta_kernels_.size(); d++)
-//      tot_delta+=evaluateKernel(delta_kernels_[d],cv);
-////    for(unsigned d=0; d<current_kernels_.size(); d++)
-////      tot_delta+=evaluateKernel(current_kernels_[d],cv);
-//    const double old_prob=(prob*KDEnorm_-tot_delta)/old_KDEnorm_;
-//    work_+=current_bias_-kbt_*bias_prefactor_*std::log(old_prob/old_Zed_+epsilon_);
-////    const double uprob_e=prob*KDEnorm_+epsilon_;
-////    work_-=kbt_*bias_prefactor_*std::log1p(-tot_delta/uprob_e);
-//  }
+  if(calc_work_)//FIXME
+    getPntrToComponent("instwork")->set(0);
 
   afterCalculate_=true;
 }
@@ -944,16 +940,8 @@ void OPESmetad_jarz<mode>::update()
     plumed_massert(afterCalculate_,"OPESmetad_jarz::update() must be called after OPESmetad_jarz::calculate() to work properly");
     afterCalculate_=false; //if needed implementation can be changed to avoid this
 
-    //work done by the bias in one iteration uses as zero reference a point at inf, so that the work is always positive
-//    if(calc_work_)
-//    {
-//      getPntrToComponent("work")->set(work_);
-//      work_=0;
-//      old_Zed_=Zed_;
-//    }
     old_KDEnorm_=KDEnorm_;
     delta_kernels_.clear();
-//    current_kernels_.clear();
     unsigned old_nker=kernels_.size();
 
     //get new kernel height
@@ -966,13 +954,21 @@ void OPESmetad_jarz<mode>::update()
     {
       if(comm.Get_rank()==0)
       {
-        multi_sim_comm.Sum(sum_heights);
-        multi_sim_comm.Sum(sum_heights2);
+        if(observers_mpi_)
+        {
+          multi_sim_comm.Bcast(sum_heights,0);
+          multi_sim_comm.Bcast(sum_heights2,0);
+        }
+        else
+        {
+          multi_sim_comm.Sum(sum_heights);
+          multi_sim_comm.Sum(sum_heights2);
+        }
       }
       comm.Bcast(sum_heights,0);
       comm.Bcast(sum_heights2,0);
     }
-    counter_+=NumWalkers_;
+    counter_+=(observers_mpi_?1:NumWalkers_);
     sum_weights_+=sum_heights;
     sum_weights2_+=sum_heights2;
     const double neff=std::pow(1+sum_weights_,2)/(1+sum_weights2_); //adding 1 makes it more robust at the start
@@ -991,7 +987,8 @@ void OPESmetad_jarz<mode>::update()
     if(adaptive_sigma_)
     {
       const double factor=mode::explore?1:biasfactor_;
-      if(counter_==1+NumWalkers_) //first time only
+      const unsigned first=(observers_mpi_?1:NumWalkers_);
+      if(counter_==1+first) //first time only
       {
         for(unsigned i=0; i<ncv_; i++)
           av_M2_[i]*=biasfactor_; //from unbiased, thus must be adjusted
@@ -1053,23 +1050,27 @@ void OPESmetad_jarz<mode>::update()
 
     //add new kernel(s)
     if(NumWalkers_==1)
-      addKernel(height,center,sigma,true);
+      addKernel(height,center,sigma,current_bias_/kbt_);
     else
     {
       std::vector<double> all_height(NumWalkers_,0.0);
       std::vector<double> all_center(NumWalkers_*ncv_,0.0);
       std::vector<double> all_sigma(NumWalkers_*ncv_,0.0);
+      std::vector<double> all_logweight(NumWalkers_,0.0);
       if(comm.Get_rank()==0)
       {
-        multi_sim_comm.Allgather(height,all_height); //heights were communicated also before...
+        multi_sim_comm.Allgather(height,all_height);
         multi_sim_comm.Allgather(center,all_center);
         multi_sim_comm.Allgather(sigma,all_sigma);
+        multi_sim_comm.Allgather(current_bias_/kbt_,all_logweight);
       }
       comm.Bcast(all_height,0);
       comm.Bcast(all_center,0);
       comm.Bcast(all_sigma,0);
+      comm.Bcast(all_logweight,0);
       if(nlist_)
       { //gather all the nlist_index_, so merging can be done using it
+        plumed_massert(!observers_mpi_,"not supported");
         std::vector<int> all_nlist_size(NumWalkers_);
         if(comm.Get_rank()==0)
         {
@@ -1095,9 +1096,11 @@ void OPESmetad_jarz<mode>::update()
       }
       for(unsigned w=0; w<NumWalkers_; w++)
       {
+        if(observers_mpi_ && w>0)
+          break;
         std::vector<double> center_w(all_center.begin()+ncv_*w,all_center.begin()+ncv_*(w+1));
         std::vector<double> sigma_w(all_sigma.begin()+ncv_*w,all_sigma.begin()+ncv_*(w+1));
-        addKernel(all_height[w],center_w,sigma_w,true);
+        addKernel(all_height[w],center_w,sigma_w,all_logweight[w]);
       }
     }
     getPntrToComponent("nker")->set(kernels_.size());
@@ -1192,17 +1195,15 @@ void OPESmetad_jarz<mode>::update()
         cv[i]=getArgument(i);
       //calc new bias value
       double prob=0;
-      for(unsigned k=rank_; k<kernels_.size(); k+=NumParallel_)
+      for(unsigned k=rank_; k<kernels_.size(); k+=NumParallel_) //FIXME use nlist
         prob+=evaluateKernel(kernels_[k],cv);
       if(NumParallel_>1)
         comm.Sum(prob);
       prob/=KDEnorm_;
       const double inst_work=kbt_*bias_prefactor_*std::log(prob/Zed_+epsilon_)-current_bias_;
       work_+=inst_work;
-  //    const double uprob_e=prob*KDEnorm_+epsilon_;
-  //    work_-=kbt_*bias_prefactor_*std::log1p(-tot_delta/uprob_e);
-      getPntrToComponent("work")->set(work_);
       getPntrToComponent("instwork")->set(inst_work);
+      getPntrToComponent("accwork")->set(work_);
     }
   }
 
@@ -1279,15 +1280,8 @@ double OPESmetad_jarz<mode>::getProbAndDerivatives(const std::vector<double>& cv
 }
 
 template <class mode>
-void OPESmetad_jarz<mode>::addKernel(const kernel &new_kernel,const bool write_to_file)
+void OPESmetad_jarz<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma)
 {
-  addKernel(new_kernel.height,new_kernel.center,new_kernel.sigma,write_to_file);
-}
-
-template <class mode>
-void OPESmetad_jarz<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma,const bool write_to_file)
-{
-//  current_kernels_.emplace_back(height,center,sigma);
   bool no_match=true;
   if(threshold2_!=0)
   {
@@ -1341,19 +1335,21 @@ void OPESmetad_jarz<mode>::addKernel(const double height,const std::vector<doubl
     if(nlist_)
       nlist_index_.push_back(kernels_.size()-1);
   }
+}
 
+template <class mode>
+void OPESmetad_jarz<mode>::addKernel(const double height,const std::vector<double>& center,const std::vector<double>& sigma,const double logweight)
+{
+  addKernel(height,center,sigma);
 //write to file
-  if(write_to_file)
-  {
-    kernelsOfile_.printField("time",getTime());
-    for(unsigned i=0; i<ncv_; i++)
-      kernelsOfile_.printField(getPntrToArgument(i),center[i]);
-    for(unsigned i=0; i<ncv_; i++)
-      kernelsOfile_.printField("sigma_"+getPntrToArgument(i)->getName(),sigma[i]);
-    kernelsOfile_.printField("height",height);
-    kernelsOfile_.printField("logweight",current_bias_/kbt_);
-    kernelsOfile_.printField();
-  }
+  kernelsOfile_.printField("time",getTime());
+  for(unsigned i=0; i<ncv_; i++)
+    kernelsOfile_.printField(getPntrToArgument(i),center[i]);
+  for(unsigned i=0; i<ncv_; i++)
+    kernelsOfile_.printField("sigma_"+getPntrToArgument(i)->getName(),sigma[i]);
+  kernelsOfile_.printField("height",height);
+  kernelsOfile_.printField("logweight",logweight);
+  kernelsOfile_.printField();
 }
 
 template <class mode>

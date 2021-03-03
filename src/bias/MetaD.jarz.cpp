@@ -406,6 +406,7 @@ private:
   double kbt_;
   int stride_;
   bool calc_work_;
+  bool shift_bias_;
   // well-tempered MetaD_jarz
   bool welltemp_;
   double biasf_;
@@ -437,6 +438,7 @@ private:
   int mw_id_;
   int mw_rstride_;
   bool walkers_mpi_;
+  bool observers_mpi_;
   unsigned mpi_nw_;
   unsigned mpi_mw_;
   // flying gaussians
@@ -517,7 +519,8 @@ void MetaD_jarz::registerKeywords(Keywords& keys) {
   keys.addOutputComponent("rbias","CALC_RCT","the instantaneous value of the bias normalized using the \\f$c(t)\\f$ reweighting factor [rbias=bias-rct]."
                           "This component can be used to obtain a reweighted histogram.");
   keys.addOutputComponent("rct","CALC_RCT","the reweighting factor \\f$c(t)\\f$.");
-  keys.addOutputComponent("work","CALC_WORK","accumulator for work");
+  keys.addOutputComponent("instwork","CALC_WORK","instant work (rwork is used, based on rbias)");
+  keys.addOutputComponent("accwork","CALC_WORK","accumulator for work (rwork is used, based on rbias)");
   keys.addOutputComponent("acc","ACCELERATION","the metadynamics acceleration factor");
   keys.addOutputComponent("maxbias", "CALC_MAX_BIAS", "the maximum of the metadynamics V(s, t)");
   keys.addOutputComponent("transbias", "CALC_TRANSITION_BIAS", "the metadynamics transition bias V*(t)");
@@ -564,11 +567,13 @@ void MetaD_jarz::registerKeywords(Keywords& keys) {
   keys.add("optional","WALKERS_DIR", "shared directory with the hills files from all the walkers");
   keys.add("optional","WALKERS_RSTRIDE","stride for reading hills files");
   keys.addFlag("WALKERS_MPI",false,"Switch on MPI version of multiple walkers - not compatible with WALKERS_* options other than WALKERS_DIR");
+  keys.addFlag("OBSERVERS_MPI",false,"the other walkers do not deposit bias. Activates WALKERS_MPI");
   keys.add("optional","INTERVAL","one dimensional lower and upper limits, outside the limits the system will not feel the biasing force.");
   keys.addFlag("FLYING_GAUSSIAN",false,"Switch on flying Gaussian method, must be used with WALKERS_MPI");
   keys.addFlag("ACCELERATION",false,"Set to TRUE if you want to compute the metadynamics acceleration factor.");
   keys.add("optional","ACCELERATION_RFILE","a data file from which the acceleration should be read at the initial step of the simulation");
   keys.addFlag("CALC_MAX_BIAS", false, "Set to TRUE if you want to compute the maximum of the metadynamics V(s, t)");
+  keys.addFlag("SHIFT_BIAS",false,"shift the bias so that maxbias=0. turns on CALC_MAX_BIAS");
   keys.addFlag("CALC_TRANSITION_BIAS", false, "Set to TRUE if you want to compute a metadynamics transition bias V*(t)");
   keys.add("numbered", "TRANSITIONWELL", "This keyword appears multiple times as TRANSITIONWELL followed by an integer. Each specifies the coordinates for one well as in transition-tempered metadynamics. At least one must be provided.");
   keys.addFlag("FREQUENCY_ADAPTIVE",false,"Set to TRUE if you want to enable frequency adaptive metadynamics such that the frequency for hill addition to change dynamically based on the acceleration factor.");
@@ -688,6 +693,12 @@ MetaD_jarz::MetaD_jarz(const ActionOptions& ao):
   // throughout the course of simulation. (These are chosen due to
   // relevance for tempering and event-driven logic as well.)
   parseFlag("CALC_MAX_BIAS", calc_max_bias_);
+  parseFlag("SHIFT_BIAS",shift_bias_);
+  if(shift_bias_)
+  {
+    calc_max_bias_=true;
+    log.printf(" -- SHIFT_BIAS: bias is shifted so that maxbias=0\n");
+  }
   parseFlag("CALC_TRANSITION_BIAS", calc_transition_bias_);
 
   std::vector<double> rect_biasf_;
@@ -851,6 +862,7 @@ MetaD_jarz::MetaD_jarz(const ActionOptions& ao):
   if (calc_rct_) plumed_massert(grid_,"CALC_RCT is supported only if bias is on a grid");
   parse("RCT_USTRIDE",rct_ustride_);
 
+
   if(dampfactor_>0.0) {
     if(!grid_) error("With DAMPFACTOR you should use grids");
   }
@@ -864,6 +876,12 @@ MetaD_jarz::MetaD_jarz(const ActionOptions& ao):
 
   // MPI version
   parseFlag("WALKERS_MPI",walkers_mpi_);
+  parseFlag("OBSERVERS_MPI",observers_mpi_);
+  if(observers_mpi_)
+  {
+    walkers_mpi_=true;
+    log.printf(" -- OBSERVERS_MPI: only first walker deposits bias\n");
+  }
 
   // Flying Gaussian
   parseFlag("FLYING_GAUSSIAN", flying_);
@@ -1033,19 +1051,18 @@ MetaD_jarz::MetaD_jarz(const ActionOptions& ao):
     addComponent("nlsteps");
     componentIsNotPeriodic("nlsteps");
   }
-
+  if(calc_work_)
+  {
+    addComponent("instwork"); componentIsNotPeriodic("instwork");
+    addComponent("accwork"); componentIsNotPeriodic("accwork");
+  }
   if(calc_rct_) {
-    addComponent("rbias"); componentIsNotPeriodic("rbias");
     addComponent("rct"); componentIsNotPeriodic("rct");
+    addComponent("rbias"); componentIsNotPeriodic("rbias");
     log.printf("  The c(t) reweighting factor will be calculated every %u hills\n",rct_ustride_);
     getPntrToComponent("rct")->set(reweight_factor_);
   }
 
-  if(calc_work_)
-  {
-    addComponent("work"); componentIsNotPeriodic("work");
-    addComponent("instwork"); componentIsNotPeriodic("instwork");
-  }
 
   if(acceleration_) {
     if (kbt_ == 0.0) {
@@ -1621,6 +1638,15 @@ double MetaD_jarz::getBias(const std::vector<double>& cv)
     comm.Sum(bias);
   }
 
+  if(shift_bias_)
+  {
+    if(bias>max_bias_)
+    {
+      max_bias_=bias;
+      getPntrToComponent("maxbias")->set(max_bias_);
+    }
+    bias-=max_bias_;
+  }
   return bias;
 }
 
@@ -1684,6 +1710,15 @@ double MetaD_jarz::getBiasAndDerivatives(const std::vector<double>& cv, std::vec
     comm.Sum(der);
   }
 
+  if(shift_bias_)
+  {
+    if(bias>max_bias_)
+    {
+      max_bias_=bias;
+      getPntrToComponent("maxbias")->set(max_bias_);
+    }
+    bias-=max_bias_;
+  }
   return bias;
 }
 
@@ -1847,6 +1882,8 @@ double MetaD_jarz::getHeight(const std::vector<double>& cv)
   double height=height0_;
   if(welltemp_) {
     double vbias = getBias(cv);
+    if(shift_bias_)
+      vbias+=max_bias_;
     if(biasf_>1.0) {
       height = height0_*std::exp(-vbias/(kbt_*(biasf_-1.0)));
     } else {
@@ -1944,7 +1981,7 @@ void MetaD_jarz::update()
   for(unsigned i=0; i<ncv; ++i) cv[i] = getArgument(i);
 
   double vbias=0.;
-  if(calc_work_) vbias=getBias(cv);
+  if(calc_work_) vbias=getBias(cv)-reweight_factor_;
 
   // if you use adaptive, call the FlexibleBin
   bool multivariate=false;
@@ -1990,6 +2027,8 @@ void MetaD_jarz::update()
       }
 
       for(unsigned i=0; i<mpi_nw_; i++) {
+        if(observers_mpi_ && i>0)
+          break;
         // actually add hills one by one
         std::vector<double> cv_now(ncv);
         std::vector<double> sigma_now(thissigma.size());
@@ -2014,14 +2053,6 @@ void MetaD_jarz::update()
   // this should be outside of the if block in case
   // mw_rstride_ is not a multiple of stride_
   if(mw_n_>1 && getStep()%mw_rstride_==0) hillsOfile_.flush();
-
-  if(calc_work_) {
-    if(nlist_) updateNlist();
-    const double inst_work=getBias(cv)-vbias;
-    work_+=inst_work;
-    getPntrToComponent("work")->set(work_);
-    getPntrToComponent("instwork")->set(inst_work);
-  }
 
   // dump grid on file
   if(wgridstride_>0&&(getStep()%wgridstride_==0||getCPT())) {
@@ -2087,6 +2118,14 @@ void MetaD_jarz::update()
   if(freq_adaptive_ && getStep()%fa_update_frequency_==0) {
     updateFrequencyAdaptiveStride();
   }
+  if(calc_work_) {
+    if(nlist_) updateNlist();
+    const double inst_work=getBias(cv)-vbias-reweight_factor_;
+    work_+=inst_work;
+    getPntrToComponent("instwork")->set(inst_work);
+    getPntrToComponent("accwork")->set(work_);
+  }
+
 }
 
 /// takes a pointer to the file and a template std::string with values v and gives back the next center, sigma and height
@@ -2174,7 +2213,8 @@ void MetaD_jarz::computeReweightingFactor()
     minusBetaF=1./kbt_;
     minusBetaFplusV=0;
   }
-  max_bias_=BiasGrid_->getMaxValue(); //to avoid exp overflow
+  if(!calc_max_bias_)
+    max_bias_=BiasGrid_->getMaxValue(); //to avoid exp overflow
 
   const unsigned rank=comm.Get_rank();
   const unsigned stride=comm.Get_size();
@@ -2187,6 +2227,8 @@ void MetaD_jarz::computeReweightingFactor()
   comm.Sum(Z_V);
 
   reweight_factor_=kbt_*std::log(Z_0/Z_V)+max_bias_;
+  if(shift_bias_)
+    reweight_factor_-=max_bias_;
   getPntrToComponent("rct")->set(reweight_factor_);
 }
 
@@ -2195,6 +2237,8 @@ double MetaD_jarz::getTransitionBarrierBias()
   // If there is only one well of interest, return the bias at that well point.
   if (transitionwells_.size() == 1) {
     double tb_bias = getBias(transitionwells_[0]);
+    if(shift_bias_)
+      tb_bias+=max_bias_;
     return tb_bias;
 
     // Otherwise, check for the least barrier bias between all pairs of wells.
