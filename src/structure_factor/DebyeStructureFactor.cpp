@@ -8,6 +8,9 @@
   Please read and cite: 
     "Molecular dynamics simulations of liquid silica crystallization"
     Niu, Piaggi, Invernizzi, Parrinello - PNAS (2018)
+  Additional reading:
+    "Making the Best of a Bad Situation: A Multiscale Approach to Free Energy Calculation"
+    Invernizzi, Parrinello - JCTC (2019)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ */
 #include "colvar/Colvar.h"
 #include "colvar/ActionRegister.h"
@@ -21,10 +24,8 @@
 #  include "Compton_consts.h" //source: http://lammps.sandia.gov/doc/compute_xrd.html
 #endif
 
-using namespace std;
-
 namespace PLMD {
-namespace colvar {
+namespace structure_factor {
 
 //+PLUMEDOC COLVAR DEBYE_STRUCTURE_FACTOR
 /*
@@ -73,7 +74,7 @@ struct indexes_pair //auxiliary class for double loop parallelization
   indexes_pair(unsigned _i,unsigned _j) : i(_i),j(_j) {}
 };
 
-class DebyeStructureFactor : public Colvar {
+class DebyeStructureFactor : public colvar::Colvar {
 
 private:
   unsigned NumParallel_; //number of parallel tasks
@@ -534,5 +535,5 @@ void DebyeStructureFactor::calculate()
   }
 }
 
-} //colvar namespace
+} //structure_factor namespace
 } //PLMD namespace

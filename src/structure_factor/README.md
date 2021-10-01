@@ -9,3 +9,8 @@ Relevant literature:
 - [Collective variables for the study of crystallisation. Mol. Phys. (2021)](https://www.tandfonline.com/doi/abs/10.1080/00268976.2021.1893848)
 - [A combined molecular dynamics and experimental study of two-step process enabling low-temperature formation of phase-pure α-FAPbI3. Sci. Adv. (2021)](https://www.science.org/doi/10.1126/sciadv.abe3326)
 - [Deep learning the slow modes for rare events sampling. PNAS (2021)](https://arxiv.org/abs/2107.03943)
+
+Some input examples can be found on PLUMED-NEST:
+- DEBYE_STRUCTURE_FACTOR https://www.plumed-nest.org/eggs/19/000/data/sodium/plumed-metad.dat.html
+- STRUCTURE_FACTOR_SPHERICALLY_AVERAGED https://www.plumed-nest.org/eggs/21/005/data/SF-prof/plumed_structure_factor_OO.dat.html
+- STRUCTURE_FACTOR_DESCRIPTOR_TEST https://www.plumed-nest.org/eggs/21/005/data/NaCl/plumed.dat.html and https://www.plumed-nest.org/eggs/21/039/data/data/silicon/0_unbiased_dlda/plumed.dat.html

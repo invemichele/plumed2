@@ -20,10 +20,8 @@
 #include <string>
 #include <cmath>
 
-using namespace std;
-
 namespace PLMD{
-namespace multicolvar{
+namespace structure_factor{
 
 //+PLUMEDOC MCOLVAR LOCAL_DEBYE_STRUCTURE_FACTOR
 /*
@@ -43,13 +41,13 @@ sql_t: LOCAL_DEBYE_STRUCTURE_FACTOR SPECIES=1:216 LAMBDA=1.5406 ACTIVE_2THETA=13
 //+ENDPLUMEDOC
 
 
-class LocalStructureFactor : public MultiColvarBase {
+class LocalStructureFactor : public multicolvar::MultiColvarBase {
 private:
 //  double nl_cut;
   double Q_;
   double cutoff_;
   std::string typeA,typeB;
-  vector<int> atomType;
+  std::vector<int> atomType;
   unsigned numberOfAatoms, numberOfBatoms;
   double f_AA,f_BB,f_AB;
   bool mono=true;
@@ -58,7 +56,7 @@ public:
   static void registerKeywords( Keywords& keys );
   explicit LocalStructureFactor(const ActionOptions&);
 // active methods:
-  virtual double compute( const unsigned& tindex, AtomValuePack& myatoms ) const ;
+  virtual double compute( const unsigned& tindex, multicolvar::AtomValuePack& myatoms ) const ;
 /// Returns the number of coordinates of the field
   bool isPeriodic(){ return false; }
 };
@@ -89,7 +87,7 @@ MultiColvarBase(ao)
 {
 
   //parse lists
-  vector<AtomNumber> ga_lista,gb_lista;
+  std::vector<AtomNumber> ga_lista,gb_lista;
   parseAtomList("GROUPA",ga_lista);
   parseAtomList("GROUPB",gb_lista);
   numberOfAatoms=ga_lista.size();
@@ -200,13 +198,13 @@ MultiColvarBase(ao)
   checkRead();
 }
 
-double LocalStructureFactor::compute( const unsigned& tindex, AtomValuePack& myatoms ) const {
+double LocalStructureFactor::compute( const unsigned& tindex, multicolvar::AtomValuePack& myatoms ) const {
 
    // Define output quantities
    double DebyeS=0;
    double N=getNumberOfAtoms();
 
-   vector<Vector> deriv(getNumberOfAtoms());
+   std::vector<Vector> deriv(getNumberOfAtoms());
    Tensor virial;
 
    for(unsigned j=1;j<myatoms.getNumberOfAtoms();++j){

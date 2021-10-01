@@ -6,10 +6,10 @@
            Luigi Bonati       - https://github.com/luigibonati
 
   Please read and cite: 
-  - "Collective variables for the study of crystallisation"
+    "Collective variables for the study of crystallisation"
     Karmakar, Invernizzi, Rizzi, Parrinello - Mol. Phys. (2021)
   Additional reading:
-  - "Deep learning the slow modes for rare events sampling"
+    "Deep learning the slow modes for rare events sampling"
     Bonati, Piccini, Parrinello - PNAS (2021)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ */
 #include "colvar/Colvar.h"
@@ -21,10 +21,8 @@
 #include <algorithm> //std::stable_sort, std::sort
 #include <sstream>   //std::ostringstream
 
-using namespace std;
-
 namespace PLMD {
-namespace colvar {
+namespace structure_factor {
 
 //+PLUMEDOC COLVAR STRUCTURE_FACTOR_DESCRIPTOR_TEST
 /*
@@ -64,7 +62,7 @@ private:
   // select based on miller indices
   bool use_structure_;
   int UnitCells_;
-  string Structure_;
+  std::string Structure_;
   std::vector<Value*> valueSk;
 
   void init_fwv(std::vector<unsigned>&);
@@ -215,7 +213,7 @@ StructureFactor_descriptor_test::StructureFactor_descriptor_test(const ActionOpt
   }
 
 //finish the parsing: get the atoms...
-  vector<AtomNumber> atoms;
+  std::vector<AtomNumber> atoms;
   parseAtomList("ATOMS",atoms);
   NumAtom_=atoms.size();
   if (NumAtom_==0) //default is to use all the atoms

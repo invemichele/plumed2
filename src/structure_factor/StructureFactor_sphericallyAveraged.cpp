@@ -13,10 +13,8 @@
 #include <algorithm> //std::stable_sort, std::sort
 #include <sstream>   //std::ostringstream
 
-using namespace std;
-
 namespace PLMD {
-namespace colvar {
+namespace structure_factor {
 
 //+PLUMEDOC COLVAR STRUCTURE_FACTOR_SPHERICALLY_AVERAGED
 /*
@@ -34,7 +32,7 @@ label: STRUCTURE_FACTOR_SPHERICALLY_AVERAGED NO_VIRIAL N2_MAX=30
 */
 //+ENDPLUMEDOC
 
-class StructureFactor_sphericallyAveraged : public Colvar {
+class StructureFactor_sphericallyAveraged : public colvar::Colvar {
 
 private:
   bool first_run_;
@@ -177,7 +175,7 @@ StructureFactor_sphericallyAveraged::StructureFactor_sphericallyAveraged(const A
   }
 
 //finish the parsing: get the atoms...
-  vector<AtomNumber> atoms;
+  std::vector<AtomNumber> atoms;
   parseAtomList("ATOMS",atoms);
   NumAtom_=atoms.size();
   if (NumAtom_==0) //default is to use all the atoms
