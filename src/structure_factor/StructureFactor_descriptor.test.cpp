@@ -1,12 +1,16 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   Development version of the Structure Factor collective variable.
-  This is a work in pogress, be carefull: edges are rough.
+  This is a work in progress, be careful: edges are rough.
 
-  Author: Michele Invernizzi - https://github.com/invemichele
+  Authors: Michele Invernizzi - https://github.com/invemichele
+           Luigi Bonati       - https://github.com/luigibonati
 
   Please read and cite: 
-    "Collective variables for the study of crystallisation"
+  - "Collective variables for the study of crystallisation"
     Karmakar, Invernizzi, Rizzi, Parrinello - Mol. Phys. (2021)
+  Additional reading:
+  - "Deep learning the slow modes for rare events sampling"
+    Bonati, Piccini, Parrinello - PNAS (2021)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ */
 #include "colvar/Colvar.h"
 #include "colvar/ActionRegister.h"
@@ -30,10 +34,14 @@ Use as CVs the instantaneous per shell structure factor:
 There is also the possibility of considering only certain atoms and a ficticious box edge L.
 These options are mainly just vestigia from the past.
 
+Optionally, one can compute only the peaks related to a given crystal structure based on miller indexes.
+This is implemented for BCC,FCC and DIAMOND structures. It requires to specify both the STRUCTURE keyword and the number of repetitions of the unit cell (UNIT_CELLS). See second example below.
 
 \par Examplexs
 
 label: STRUCTURE_FACTOR_DESCRIPTOR_TEST NO_VIRIAL N2_MAX=30
+
+label: STRUCTURE_FACTOR_DESCRIPTOR_TEST ACTIVE_SHELLS=27,72,99 STRUCTURE=DIAMOND UNIT_CELLS=3
 
 */
 //+ENDPLUMEDOC
@@ -53,6 +61,10 @@ private:
   std::vector<unsigned> fwv_mult_;
   double k_const_;
 
+  // select based on miller indices
+  bool use_structure_;
+  int UnitCells_;
+  string Structure_;
   std::vector<Value*> valueSk;
 
   void init_fwv(std::vector<unsigned>&);
@@ -75,6 +87,9 @@ void StructureFactor_descriptor_test::registerKeywords(Keywords& keys)
   keys.add("atoms","ATOMS","calculate Fourier components using only these atoms. Default is to use all atoms");
   keys.add("optional","BOX_EDGE","manually set the edge L of the cubic box to be considered");
   keys.add("optional","NAME_PRECISION","set the number of digits used for components name");
+
+  keys.add("optional","UNIT_CELLS","set the number of unit cells");
+  keys.add("optional","STRUCTURE","choose the target structure");
 
   keys.addFlag("NO_VIRIAL",false,"skip the virial calculations, useful to speedup when a correct pressure is not needed (e.g. in NVT simulations)");
   keys.addFlag("SERIAL",false,"perform the calculation in serial even if multiple tasks are available");
@@ -107,6 +122,21 @@ StructureFactor_descriptor_test::StructureFactor_descriptor_test(const ActionOpt
     rank_=0;
   }
 
+//- structure info
+  use_structure_=false;
+  Structure_="";
+  parse("STRUCTURE",Structure_);
+
+  if(!Structure_.empty())
+  {
+    use_structure_=true;
+    log.printf("  selecting only the peaks of structure = %s\n",Structure_);
+    UnitCells_=0;
+    parse("UNIT_CELLS",UnitCells_);
+    plumed_massert(UnitCells_>0,"if STRUCTURE is used the number of UNIT_CELLS must be specified");
+    log.printf("  with a number of repetition of the unit cells (per side) = %d\n",UnitCells_ );
+  }
+ 
 //- edge L
   k_const_=1; //not elegant, but works...
   double box_edge=-1;
@@ -390,9 +420,41 @@ void StructureFactor_descriptor_test::init_fwv(std::vector<unsigned>& active_she
         const unsigned n2=nx2ny2+nz*nz-1;
         if (active_shells[n2])
         {
-          Vector new_point(nx,ny,nz);
-          fwv_.push_back(new_point);
-          fwv_mult_[n2]++; //inactive shells will have zero multiplicity
+          bool select_k=false;
+          if (use_structure_)
+          {
+	        //check if remainder with respect to # of unit cell  is zero
+            if (nx%UnitCells_ == 0 && ny%UnitCells_ == 0 && nz%UnitCells_ ==0)
+            {
+              int h = nx/UnitCells_;
+              int k = ny/UnitCells_;
+              int l = nz/UnitCells_;
+              
+              //check if satisfies the condition for miller indexes	
+              if (Structure_=="BCC"){
+                if ( (h+k+l)%2 == 0 )
+                  select_k=true;
+              }else if (Structure_=="FCC"){
+                if ( (h%2==0 && k%2==0 && l%2==0 ) || ((h+1)%2==0 && (k+1)%2==0 && (l+1)%2==0 ) )
+                  select_k=true;
+              }else if (Structure_=="DIAMOND"){
+                if ( (h+k+l)%4 == 0 || (h+k+l - 1 )%2 == 0)
+                  select_k=true;
+                }else{
+                  plumed_massert(Structure_=="","Unkown structure type"); //TODO	
+                }
+            }
+          } 
+          else 
+          {
+            select_k=true;
+          }
+
+          if (select_k){
+            Vector new_point(nx,ny,nz);
+            fwv_.push_back(new_point);
+            fwv_mult_[n2]++; //inactive shells will have zero multiplicity
+          }
         }
       }
     }
