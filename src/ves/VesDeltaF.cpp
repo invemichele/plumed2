@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2016-2018 The VES code team
+   Copyright (c) 2016-2021 The VES code team
    (see the PEOPLE-VES file at the root of this folder for a list of names)
 
    See http://www.ves-code.org for more information.
@@ -100,8 +100,7 @@ The header of both FES files must be identical, and should be similar to the fol
 #! SET max_cv 1
 #! SET nbins_cv  100
 #! SET periodic_cv false
-0 1000 0
-[ ... ]
+0 0 0
 \endauxfile
 \auxfile{fesB.data}
 #! FIELDS cv file.free der_cv
@@ -109,8 +108,7 @@ The header of both FES files must be identical, and should be similar to the fol
 #! SET max_cv 1
 #! SET nbins_cv  100
 #! SET periodic_cv false
-0 1000 0
-[ ... ]
+0 0 0
 \endauxfile
 
 */
