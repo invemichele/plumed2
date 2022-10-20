@@ -233,6 +233,9 @@ private:
   Value* excluded_region_;
   std::vector<Value*> extra_biases_;
 
+  bool hard_barrier_;
+  double max_bias_;
+
   OFile stateOfile_;
   int wStateStride_;
   bool storeOldStates_;
@@ -328,6 +331,7 @@ void OPESmetad<mode>::registerKeywords(Keywords& keys)
   keys.addFlag("FIXED_SIGMA",false,"do not decrease sigma as the simulation proceeds. Can be added in a RESTART, to keep in check the number of compressed kernels");
   keys.addFlag("RECURSIVE_MERGE_OFF",false,"do not recursively attempt kernel merging when a new one is added");
   keys.addFlag("NO_ZED",false,"do not normalize over the explored CV space, Z_n=1");
+  keys.addFlag("HARD_BARRIER",false,"consider BARRIER a strict limit to the maximum span of the bias");
 //kernels and state files
   keys.add("compulsory","FILE","KERNELS","a file in which the list of all deposited kernels is stored");
   keys.add("optional","FMT","specify format for KERNELS file");
@@ -449,6 +453,12 @@ OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
   }
 
   epsilon_=std::exp(-barrier/bias_prefactor_/kbt_);
+  parseFlag("HARD_BARRIER",hard_barrier_);
+  if(hard_barrier_)
+  {
+    max_bias_=0;
+    epsilon_=std::exp(-barrier/kbt_);
+  }
   parse("EPSILON",epsilon_);
   plumed_massert(epsilon_>0,"you must choose a value for EPSILON greater than zero. Is your BARRIER too high?");
   sum_weights_=std::pow(epsilon_,bias_prefactor_); //to avoid NANs we start with counter_=1 and w0=exp(beta*V0)
@@ -911,6 +921,8 @@ OPESmetad<mode>::OPESmetad(const ActionOptions& ao)
     log.printf(" -- NLIST_PACE_RESET: forcing the neighbor list to update every PACE\n");
   if(no_Zed_)
     log.printf(" -- NO_ZED: using fixed normalization factor = %g\n",Zed_);
+  if(hard_barrier_)
+    log.printf(" -- HARD_BARRIER: at any time this holds, (V_max - V_min)/(1-1/gamma) <= BARRIER\n");
   if(wStateStride_>0)
     log.printf("  state checkpoints are written on file %s every %d MD steps\n",stateFileName.c_str(),wStateStride_);
   if(wStateStride_==-1)
@@ -979,6 +991,14 @@ void OPESmetad<mode>::calculate()
   setBias(bias);
   for(unsigned i=0; i<ncv_; i++)
     setOutputForce(i,-kbt_*bias_prefactor_/(prob/Zed_+epsilon_)*der_prob[i]/Zed_);
+
+  if(hard_barrier_ && bias>max_bias_)
+  {
+    double min_bias=kbt_*bias_prefactor_*std::log(epsilon_);
+    min_bias+=bias-max_bias_;
+    epsilon_=std::exp(min_bias/bias_prefactor_/kbt_);
+    max_bias_=bias;
+  }
 }
 
 template <class mode>
