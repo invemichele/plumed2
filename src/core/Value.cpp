@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2011-2021 The plumed team
+   Copyright (c) 2011-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -51,8 +51,8 @@ Value::Value(const std::string& name):
   value(0.0),
   inputForce(0.0),
   hasForce(false),
-  hasDeriv(true),
   name(name),
+  hasDeriv(true),
   periodicity(unset),
   min(0.0),
   max(0.0),

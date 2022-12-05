@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2013-2021 The plumed team
+   Copyright (c) 2013-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -117,7 +117,7 @@ DHEnergy::DHEnergy(const ActionOptions&ao):
   checkRead();
   if( plumed.getAtoms().usingNaturalUnits() ) error("DHENERGY cannot be used for calculations performed with natural units");
   constant=138.935458111/atoms.getUnits().getEnergy()/atoms.getUnits().getLength()*atoms.getUnits().getCharge()*atoms.getUnits().getCharge();
-  k=sqrt(I/(epsilon*T))*502.903741125*atoms.getUnits().getLength();
+  k=std::sqrt(I/(epsilon*T))*502.903741125*atoms.getUnits().getLength();
   checkRead();
   log<<"  with solvent dielectric constant "<<epsilon<<"\n";
   log<<"  at temperature "<<T<<" K\n";

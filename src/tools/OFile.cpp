@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2012-2021 The plumed team
+   Copyright (c) 2012-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -185,6 +185,12 @@ OFile& OFile::printField(const std::string&name,long int v) {
   return *this;
 }
 
+OFile& OFile::printField(const std::string&name,long long int v) {
+  std::sprintf(buffer_string.get()," %lld",v);
+  printField(name,buffer_string.get());
+  return *this;
+}
+
 OFile& OFile::printField(const std::string&name,unsigned v) {
   std::sprintf(buffer_string.get()," %u",v);
   printField(name,buffer_string.get());
@@ -193,6 +199,12 @@ OFile& OFile::printField(const std::string&name,unsigned v) {
 
 OFile& OFile::printField(const std::string&name,long unsigned v) {
   std::sprintf(buffer_string.get()," %lu",v);
+  printField(name,buffer_string.get());
+  return *this;
+}
+
+OFile& OFile::printField(const std::string&name,long long unsigned v) {
+  std::sprintf(buffer_string.get()," %llu",v);
   printField(name,buffer_string.get());
   return *this;
 }

@@ -31,11 +31,13 @@ namespace opes {
 
 //+PLUMEDOC OPES_BIAS OPES_EXPANDED
 /*
-On-the-fly probability enhanced sampling (\ref OPES "OPES") with expanded ensembles target distribution (replica-exchange-like) \cite Invernizzi2020unified.
+On-the-fly probability enhanced sampling with expanded ensembles for the target distribution.
+
+This method is similar to the OPES method (\ref OPES "OPES") with expanded ensembles target distribution (replica-exchange-like) \cite Invernizzi2020unified.
 
 An expanded ensemble is obtained by summing a set of ensembles at slightly different termodynamic conditions, or with slightly different Hamiltonians.
-Such ensembles can be sampled via methods like replica exchange, or this OPES_EXPANDED bias action.
-A typical example is a mutlticanonical simulation, in which a whole range of temperatures is sampled instead of a single one.
+Such ensembles can be sampled via methods like replica exchange, or this \ref OPES_EXPANDED bias action.
+A typical example is a multicanonical simulation, in which a whole range of temperatures is sampled instead of a single one.
 
 In oreder to define an expanded target ensemble we use \ref EXPANSION_CV "expansion collective variables" (ECVs), \f$\Delta u_\lambda(\mathbf{x})\f$.
 The bias at step \f$n\f$ is
@@ -52,7 +54,7 @@ Its value is also needed for restarting a simulation.
 You can store the instantaneous \f$\Delta F_n(\lambda)\f$ estimates also in a more readable format using STATE_WFILE and STATE_WSTRIDE.
 Restart can be done either from a DELTAFS file or from a STATE_RFILE, it is equivalent.
 
-Contrary to \ref OPES_METAD, OPES_EXPANDED does not use kernel density estimation.
+Contrary to \ref OPES_METAD, \ref OPES_EXPANDED does not use kernel density estimation.
 
 \par Examples
 
@@ -65,7 +67,7 @@ PRINT FILE=COLVAR STRIDE=500 ARG=ene,opes.bias
 \endplumedfile
 
 You can easily combine multiple ECVs.
-The OPES_EXPANDED bias will create a multidimensional target grid to sample all the combinations.
+The \ref OPES_EXPANDED bias will create a multidimensional target grid to sample all the combinations.
 
 \plumedfile
 # simulate multiple temperatures while biasing a CV
@@ -118,7 +120,7 @@ private:
   unsigned rank_;
   unsigned NumWalkers_;
   unsigned walker_rank_;
-  unsigned long counter_;
+  unsigned long long counter_;
   std::size_t ncv_;
 
   std::vector<const double *> ECVs_;
@@ -184,11 +186,11 @@ void OPESexpanded::registerKeywords(Keywords& keys)
   keys.add("compulsory","PACE","how often the bias is updated");
   keys.add("compulsory","OBSERVATION_STEPS","100","number of unbiased initial PACE steps to collect statistics for initialization");
 //DeltaFs and state files
-  keys.add("compulsory","FILE","DELTAFS","a file with the estimate of the relative \\f$\\Delta F\\f$ for each component of the target and of the global \\f$c(t)\\f$");
+  keys.add("compulsory","FILE","DELTAFS","a file with the estimate of the relative Delta F for each component of the target and of the global c(t)");
   keys.add("compulsory","PRINT_STRIDE","100","stride for printing to DELTAFS file, in units of PACE");
   keys.add("optional","FMT","specify format for DELTAFS file");
-  keys.add("optional","STATE_RFILE","read from this file the \\f$\\Delta F\\f$ estimates and all the info needed to RESTART the simulation");
-  keys.add("optional","STATE_WFILE","write to this file the \\f$\\Delta F\\f$ estimates and all the info needed to RESTART the simulation");
+  keys.add("optional","STATE_RFILE","read from this file the Delta F estimates and all the info needed to RESTART the simulation");
+  keys.add("optional","STATE_WFILE","write to this file the Delta F estimates and all the info needed to RESTART the simulation");
   keys.add("optional","STATE_WSTRIDE","number of MD steps between writing the STATE_WFILE. Default is only on CPT events (but not all MD codes set them)");
   keys.addFlag("STORE_STATES",false,"append to STATE_WFILE instead of ovewriting it each time");
 //miscellaneous
@@ -428,7 +430,7 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
       plumed_merror("RESTART requested, but file '"+restartFileName+"' was not found!\n  Set RESTART=NO or provide a restart file");
     if(NumWalkers_>1) //make sure that all walkers are doing the same thing
     {
-      std::vector<unsigned long> all_counter(NumWalkers_);
+      std::vector<unsigned long long> all_counter(NumWalkers_);
       if(comm.Get_rank()==0)
         multi_sim_comm.Allgather(counter_,all_counter);
       comm.Bcast(all_counter,0);

@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2019-2021 The plumed team
+   Copyright (c) 2019-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -318,7 +318,7 @@ void GenExample::printExampleInput( const std::vector<std::vector<std::string> >
             unsigned ncomp = av->getNumberOfComponents();
             for(unsigned k=0; k<ncomp; ++k ) {
               std::string myname = av->copyOutput(k)->getName(); std::size_t dot=myname.find_first_of(".");
-              std::string tname=myname.substr(dot+1); std::size_t und=tname.find_first_of("_"); std::size_t hyph=tname.find_first_of("-");
+              std::string tname=myname.substr(dot+1); std::size_t und=tname.find_last_of("_"); std::size_t hyph=tname.find_first_of("-");
               if( und!=std::string::npos && hyph!=std::string::npos ) plumed_merror("cannot use underscore and hyphen in name");
               ofile<<"<tr><td width=\"5%%\">"<<myname<<"</td><td>";
               if( und!=std::string::npos ) {

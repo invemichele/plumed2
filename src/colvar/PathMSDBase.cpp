@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2012-2021 The plumed team
+   Copyright (c) 2012-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -81,7 +81,7 @@ PathMSDBase::PathMSDBase(const ActionOptions&ao):
         if(nat!=mypdb.getAtomNumbers().size()) error("frames should have the same number of atoms");
         if(aaa.empty()) {
           aaa=mypdb.getAtomNumbers();
-          log.printf("  found %z atoms in input \n",aaa.size());
+          log.printf("  found %zu atoms in input \n",aaa.size());
           log.printf("  with indices : ");
           for(unsigned i=0; i<aaa.size(); ++i) {
             if(i%25==0) log<<"\n";
@@ -272,7 +272,7 @@ void PathMSDBase::calculate() {
   double tmp;
 
   // clean vector
-  for(unsigned i=0; i< derivs_z.size(); i++) {derivs_z[i].zero();}
+  Tools::set_to_zero(derivs_z);
 
   for(auto & it : imgVec) {
     it.similarity=std::exp(-lambda*(it.distance));
@@ -285,8 +285,7 @@ void PathMSDBase::calculate() {
   val_z_path->set(-(1./lambda)*std::log(partition));
   for(unsigned j=0; j<s_path.size(); j++) {
     // clean up
-    #pragma omp simd
-    for(unsigned i=0; i< derivs_s.size(); i++) {derivs_s[i].zero();}
+    Tools::set_to_zero(derivs_s);
     // do the derivative
     for(const auto & it : imgVec) {
       double expval=it.similarity;

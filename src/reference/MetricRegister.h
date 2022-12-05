@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2013-2021 The plumed team
+   Copyright (c) 2013-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -91,6 +91,7 @@ std::unique_ptr<T> MetricRegister::create( const std::string& type ) {
   conf.release();
 // notice that I should pass ptr here rather than conf.release(),
 // since the type is different
+// cppcheck-suppress returnDanglingLifetime
   return std::unique_ptr<T>(ptr);
 }
 

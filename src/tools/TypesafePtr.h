@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2018-2021 The plumed team
+   Copyright (c) 2018-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -33,6 +33,8 @@
 #include <array>
 #include <cstring>
 #include <type_traits>
+#include <climits>
+#include <initializer_list>
 
 namespace PLMD {
 
@@ -118,9 +120,9 @@ public:
   }
 
 /// Macro that generate a constructor with given type and flags
-#define __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type_,flags_) \
+#define __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type,type_,flags_) \
   TypesafePtr(type_*ptr, std::size_t nelem=0, const std::size_t* shape=nullptr) : \
-    ptr((void*)const_cast<type_*>(ptr)), \
+    ptr((void*)const_cast<type*>(ptr)), \
     nelem(nelem), \
     flags(flags_) \
   { \
@@ -130,13 +132,13 @@ public:
 
 /// Macro that uses __PLUMED_WRAPPER_TYPESAFEPTR_INNER to generate constructors with
 /// all possible pointer-const combinations
-#define __PLUMED_WRAPPER_TYPESAFEPTR(type,code,size) \
-  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type,             size | (0x10000*(code)) | (0x2000000*2)) \
-  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type const,       size | (0x10000*(code)) | (0x2000000*3)) \
-  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type*,            size | (0x10000*(code)) | (0x2000000*4)) \
-  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type*const,       size | (0x10000*(code)) | (0x2000000*5)) \
-  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type const*,      size | (0x10000*(code)) | (0x2000000*6)) \
-  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type const*const, size | (0x10000*(code)) | (0x2000000*7))
+#define __PLUMED_WRAPPER_TYPESAFEPTR(type, code,size) \
+  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type, type,             size | (0x10000*(code)) | (0x2000000*2)) \
+  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type, type const,       size | (0x10000*(code)) | (0x2000000*3)) \
+  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type*,type*,            size | (0x10000*(code)) | (0x2000000*4)) \
+  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type*,type*const,       size | (0x10000*(code)) | (0x2000000*5)) \
+  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type*,type const*,      size | (0x10000*(code)) | (0x2000000*6)) \
+  __PLUMED_WRAPPER_TYPESAFEPTR_INNER(type*,type const*const, size | (0x10000*(code)) | (0x2000000*7))
 
 /// Macro that generates the constructors from empy types (those of which sizeof cannot be computed)
 #define __PLUMED_WRAPPER_TYPESAFEPTR_EMPTY(type,code) __PLUMED_WRAPPER_TYPESAFEPTR(type,code,0)
@@ -164,7 +166,8 @@ public:
 /// 5: FILE
 /// 0x100: unsigned
   __PLUMED_WRAPPER_TYPESAFEPTR_EMPTY(void,1)
-  __PLUMED_WRAPPER_TYPESAFEPTR_SIZED(char,3)
+  __PLUMED_WRAPPER_TYPESAFEPTR_SIZED(char,(CHAR_MIN==0)*0x100+3)
+  __PLUMED_WRAPPER_TYPESAFEPTR_SIZED(signed char,3)
   __PLUMED_WRAPPER_TYPESAFEPTR_SIZED(unsigned char,0x100+3)
   __PLUMED_WRAPPER_TYPESAFEPTR_SIZED(short,3)
   __PLUMED_WRAPPER_TYPESAFEPTR_SIZED(unsigned short,0x100+3)
@@ -226,7 +229,6 @@ private:
   T* get_priv(std::size_t nelem, const std::size_t* shape, bool byvalue) const {
 
     if(typesafePtrSkipCheck()) return (T*) ptr;
-    typedef typename std::remove_const<T>::type T_noconst;
     typedef typename std::remove_pointer<T>::type T_noptr;
     if(flags==0) return (T*) ptr; // no check
     auto size=flags&0xffff;
@@ -243,7 +245,7 @@ private:
       if(std::is_floating_point<T_noptr>::value && (type!=is_floating_point)) {
         throw ExceptionTypeError() <<"This command expects a floating point type. Received a " << type_str() << " instead"<<extra_msg();
       }
-      if(std::is_same<std::remove_const<FILE>,T_noconst>::value && (type!=is_file)) {
+      if(std::is_same<FILE,typename std::remove_const<T_noptr>::type>::value && (type!=is_file)) {
         throw ExceptionTypeError() <<"This command expects a FILE. Received a " << type_str() << " instead"<<extra_msg();
       }
     }

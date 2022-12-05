@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2012-2021 The plumed team
+   Copyright (c) 2012-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -91,7 +91,7 @@ bool FilesHandler::readBunch(BiasRepresentation *br, int stride = -1) {
       (*log)<<"  opening file "<<filenames[beingread]<<"\n";
       ff->open(filenames[beingread]); isopen=true;
     }
-    int n;
+    int n=0;
     while(true) {
       bool fileisover=true;
       while(scanOneHill(br,ff)) {
@@ -273,7 +273,7 @@ FuncSumHills::FuncSumHills(const ActionOptions&ao):
       double a,b;
       Tools::convert(gmin[i],a);
       Tools::convert(gmax[i],b);
-      unsigned n=((b-a)/gspacing[i])+1;
+      unsigned n=std::ceil((b-a)/gspacing[i]);
       if(gbin[i]<n) gbin[i]=n;
     }
 

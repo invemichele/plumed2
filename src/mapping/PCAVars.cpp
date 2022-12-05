@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2014-2021 The plumed team
+   Copyright (c) 2014-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -204,10 +204,7 @@ void PCAVars::registerKeywords( Keywords& keys ) {
   componentsAreNotOptional(keys); keys.use("ARG");
   keys.addOutputComponent("eig","default","the projections on each eigenvalue are stored on values labeled eig-1, eig-2, ...");
   keys.addOutputComponent("residual","default","the distance of the configuration from the linear subspace defined "
-                          "by the vectors, \\f$e_i\\f$, that are contained in the rows of \\f$A\\f$.  In other words this is "
-                          "\\f$\\sqrt( r^2 - \\sum_i [\\mathbf{r}.\\mathbf{e_i}]^2)\\f$ where "
-                          "\\f$r\\f$ is the distance between the instantaneous position and the "
-                          "reference point.");
+                          "by the vectors, eig-1, eig2, ... that are contained in the rows of A.");
   keys.add("compulsory","REFERENCE","a pdb file containing the reference configuration and configurations that define the directions for each eigenvector");
   keys.add("compulsory","TYPE","OPTIMAL","The method we are using for alignment to the reference structure");
   keys.addFlag("NOPBC",false,"ignore the periodic boundary conditions when calculating distances");
@@ -271,7 +268,7 @@ PCAVars::PCAVars(const ActionOptions& ao):
   std::vector<AtomNumber> atoms; myref->getAtomRequests( atoms, false );
   std::vector<std::string> args; myref->getArgumentRequests( args, false );
   if( atoms.size()>0 ) {
-    log.printf("  found %z atoms in input \n",atoms.size());
+    log.printf("  found %zu atoms in input \n",atoms.size());
     log.printf("  with indices : ");
     for(unsigned i=0; i<atoms.size(); ++i) {
       if(i%25==0) log<<"\n";
@@ -399,7 +396,7 @@ void PCAVars::calculate() {
     // And set final value
     getPntrToComponent(i)->set( proj );
   }
-  dist=sqrt(dist);
+  dist=std::sqrt(dist);
   resid->set( dist );
 
   // Take square root of residual derivatives

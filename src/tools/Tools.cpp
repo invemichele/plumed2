@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2011-2021 The plumed team
+   Copyright (c) 2011-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -54,11 +54,19 @@ bool Tools::convertNoexcept(const std::string & str,long int & t) {
   return convertToInt(str,t);
 }
 
+bool Tools::convertNoexcept(const std::string & str,long long int & t) {
+  return convertToInt(str,t);
+}
+
 bool Tools::convertNoexcept(const std::string & str,unsigned & t) {
   return convertToInt(str,t);
 }
 
 bool Tools::convertNoexcept(const std::string & str,long unsigned & t) {
+  return convertToInt(str,t);
+}
+
+bool Tools::convertNoexcept(const std::string & str,long long unsigned & t) {
   return convertToInt(str,t);
 }
 
@@ -437,6 +445,11 @@ Tools::DirectoryChanger::~DirectoryChanger() {
 // we thus just report the problem
   if(ret!=0) std::fprintf(stderr,"+++ WARNING: cannot cd back to directory %s\n",cwd);
 #endif
+}
+
+std::unique_ptr<std::lock_guard<std::mutex>> Tools::molfile_lock() {
+  static std::mutex mtx;
+  return Tools::make_unique<std::lock_guard<std::mutex>>(mtx);
 }
 
 }

@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2017-2021 The plumed team
+   Copyright (c) 2017-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -208,25 +208,25 @@ private:
   std::vector<double> average_weights_;
 
 // write file with model overlap
-  void write_model_overlap(long int step);
+  void write_model_overlap(long long int step);
 // get median of std::vector
   double get_median(std::vector<double> &v);
 // annealing
-  double get_annealing(long int step);
+  double get_annealing(long long int step);
 // do regression
   double scaleEnergy(double s);
   double doRegression();
 // read and write status
   void read_status();
-  void print_status(long int step);
+  void print_status(long long int step);
 // accept or reject
   bool doAccept(double oldE, double newE, double kbt);
 // do MonteCarlo
   void doMonteCarlo();
 // read error file
-  std::vector<double> read_exp_errors(std::string errfile);
+  std::vector<double> read_exp_errors(const std::string & errfile);
 // read experimental overlaps
-  std::vector<double> read_exp_overlaps(std::string ovfile);
+  std::vector<double> read_exp_overlaps(const std::string & ovfile);
 // calculate model GMM weights and covariances
   std::vector<double> get_GMM_m(std::vector<AtomNumber> &atoms);
 // read data GMM file
@@ -757,7 +757,7 @@ EMMI::EMMI(const ActionOptions&ao):
   log<<"\n";
 }
 
-void EMMI::write_model_overlap(long int step)
+void EMMI::write_model_overlap(long long int step)
 {
   OFile ovfile;
   ovfile.link(*this);
@@ -819,7 +819,7 @@ void EMMI::read_status()
   }
 }
 
-void EMMI::print_status(long int step)
+void EMMI::print_status(long long int step)
 {
 // if first time open the file
   if(first_status_) {
@@ -935,7 +935,7 @@ void EMMI::doMonteCarlo()
   getPntrToComponent("sigma-"+num)->set(sigma_[nGMM]);
 }
 
-std::vector<double> EMMI::read_exp_errors(std::string errfile)
+std::vector<double> EMMI::read_exp_errors(const std::string & errfile)
 {
   int nexp, idcomp;
   double err;
@@ -971,7 +971,7 @@ std::vector<double> EMMI::read_exp_errors(std::string errfile)
   return exp_err;
 }
 
-std::vector<double> EMMI::read_exp_overlaps(std::string ovfile)
+std::vector<double> EMMI::read_exp_overlaps(const std::string & ovfile)
 {
   int idcomp;
   double ov;
@@ -1474,7 +1474,7 @@ double EMMI::doRegression()
   return scale_best;
 }
 
-double EMMI::get_annealing(long int step)
+double EMMI::get_annealing(long long int step)
 {
 // default no annealing
   double fact = 1.0;
@@ -1565,7 +1565,7 @@ void EMMI::calculate()
   }
 
   // get time step
-  long int step = getStep();
+  long long int step = getStep();
 
   // do regression
   if(nregres_>0) {

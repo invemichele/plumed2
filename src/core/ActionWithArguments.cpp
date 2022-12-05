@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2011-2021 The plumed team
+   Copyright (c) 2011-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -234,6 +234,24 @@ void ActionWithArguments::requestArguments(const std::vector<Value*> &arg) {
   }
 }
 
+void ActionWithArguments::requestExtraDependencies(const std::vector<Value*> &extra) {
+  plumed_massert(!lockRequestArguments,"requested argument list can only be changed in the prepare() method");
+  std::string fullname;
+  std::string name;
+  for(unsigned i=0; i<extra.size(); i++) {
+    fullname=extra[i]->getName();
+    if(fullname.find(".")!=std::string::npos) {
+      std::size_t dot=fullname.find_first_of('.');
+      name=fullname.substr(0,dot);
+    } else {
+      name=fullname;
+    }
+    ActionWithValue* action=plumed.getActionSet().selectWithLabel<ActionWithValue*>(name);
+    plumed_massert(action,"cannot find action named (in requestArguments - this is weird)" + name);
+    addDependency(action);
+  }
+}
+
 ActionWithArguments::ActionWithArguments(const ActionOptions&ao):
   Action(ao),
   lockRequestArguments(false)
@@ -262,7 +280,7 @@ void ActionWithArguments::calculateNumericalDerivatives( ActionWithValue* a ) {
   std::vector<double> value (nval*npar);
   for(int i=0; i<npar; i++) {
     double arg0=arguments[i]->get();
-    arguments[i]->set(arg0+sqrt(epsilon));
+    arguments[i]->set(arg0+std::sqrt(epsilon));
     a->calculate();
     arguments[i]->set(arg0);
     for(int j=0; j<nval; j++) {
@@ -273,7 +291,7 @@ void ActionWithArguments::calculateNumericalDerivatives( ActionWithValue* a ) {
   a->clearDerivatives();
   for(int j=0; j<nval; j++) {
     Value* v=a->copyOutput(j);
-    if( v->hasDerivatives() ) for(int i=0; i<npar; i++) v->addDerivative(i,(value[i*nval+j]-a->getOutputQuantity(j))/sqrt(epsilon));
+    if( v->hasDerivatives() ) for(int i=0; i<npar; i++) v->addDerivative(i,(value[i*nval+j]-a->getOutputQuantity(j))/std::sqrt(epsilon));
   }
 }
 

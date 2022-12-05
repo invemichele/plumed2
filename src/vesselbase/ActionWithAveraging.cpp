@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2016-2021 The plumed team
+   Copyright (c) 2016-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -106,6 +106,7 @@ bool ActionWithAveraging::ignoreNormalization() const {
 }
 
 void ActionWithAveraging::setAveragingAction( std::unique_ptr<AveragingVessel> av_vessel, const bool& usetasks ) {
+  // cppcheck-suppress danglingLifetime
   myaverage=av_vessel.get();
   addVessel( std::move(av_vessel) );
   useRunAllTasks=usetasks; resizeFunctions();

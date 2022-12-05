@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2014-2021 The plumed team
+   Copyright (c) 2014-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -233,7 +233,7 @@ FitToTemplate::FitToTemplate(const ActionOptions&ao):
     error("missing input file " + reference );
 
   requestAtoms(pdb.getAtomNumbers());
-  log.printf("  found %z atoms in input \n",pdb.getAtomNumbers().size());
+  log.printf("  found %zu atoms in input \n",pdb.getAtomNumbers().size());
   log.printf("  with indices : ");
   for(unsigned i=0; i<pdb.getAtomNumbers().size(); ++i) {
     if(i%25==0) log<<"\n";

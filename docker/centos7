@@ -1,4 +1,3 @@
-# Start from latest ubuntu
 FROM centos:7
 
 # NOTE: numpy==1.19 is the last version compatible with python 3.6
@@ -34,7 +33,7 @@ RUN . /etc/bashrc \
  && cd plumed2 \
  && export PYTHONPATH=$PWD/python:$PYTHONPATH \
  && export PYTHON_BIN=python3 \
- && .travis/install.boost release \
+ && .ci/install.boost release \
  && ./configure --enable-modules=all --enable-boost_serialization \
  && make -j 4 \
  && make check

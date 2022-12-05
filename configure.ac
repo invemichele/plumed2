@@ -86,10 +86,10 @@ AC_DEFUN([PLUMED_CHECK_LDFLAGS], [
 ])
 
 # PLUMED_SEARCH_LIBS(function,search-libs[,action-if-found][,action-if-not-found][,other-libraries])
-# same as AC_SEARCH_LIBS, but does not try any library unless $libsearch==true
+# same as AC_SEARCH_LIBS, but does not try any library unless $libsearch=true
 # Should be used instead of AC_SEARCH_LIBS in order to make --disable-libsearch work correctly
 AC_DEFUN([PLUMED_SEARCH_LIBS], [
-  if test "${libsearch}" == true ; then
+  if test "${libsearch}" = true ; then
     AC_SEARCH_LIBS([$1],[$2],[$3],[$4],[$5])
   else
     AC_SEARCH_LIBS([$1],[],[$3],[$4],[])
@@ -106,7 +106,7 @@ AC_DEFUN([PLUMED_CHECK_PACKAGE], [
     AC_CHECK_HEADER( [$1],[
       PLUMED_SEARCH_LIBS([$2],[$4],[found=ok])
     ])
-    if test $found == ok ; then
+    if test $found = ok ; then
        AC_DEFINE([$3])
        $3=yes
     else
@@ -114,22 +114,28 @@ AC_DEFUN([PLUMED_CHECK_PACKAGE], [
     fi
 ])
 
-# PLUMED_CHECK_CXX_PACKAGE(name,program,define[,library])
+# PLUMED_CHECK_CXX_PACKAGE(name,program,define[,library,multiple_libraries])
 # Similar to PLUMED_CHECK_PACKAGE but suitable for checking C++ libraries.
 # Name is just a string used in the configure log
 # program is a string containing a short C++ program that should compiled.
 # If present and necessary, library is also linked.
+# If multiple_libraries is true check the program using all the libraries specified in `library` rather than as alternatives one at a time.
 AC_DEFUN([PLUMED_CHECK_CXX_PACKAGE], [
     found=ko
     $3=no
-    if test "${libsearch}" == true ; then
+    if test "${libsearch}" = true ; then
       testlibs="$4"
     else
       testlibs=""
     fi
+    # check if multiple libraries are required
+    multiple=no
+    if test "$5" = "true"; then
+      multiple=yes
+    fi
+    save_LIBS="$LIBS"
     for testlib in "" $testlibs
     do
-      save_LIBS="$LIBS"
       if test -n "$testlib" ; then
         AC_MSG_CHECKING([$1 with -l$testlib])
         LIBS="-l$testlib $LIBS"
@@ -141,12 +147,14 @@ AC_DEFUN([PLUMED_CHECK_CXX_PACKAGE], [
           [AC_MSG_RESULT([yes])],
           [AC_MSG_RESULT([no])]
       )
-      if test $found == ok ; then
+      if test $found = ok ; then
         break
       fi
-      LIBS="$save_LIBS"
+      if test "$multiple" = "no"; then # reset LIBS to initial one, otherwise add new libraries
+        LIBS="$save_LIBS"
+      fi
     done
-    if test $found == ok ; then
+    if test $found = ok ; then
       AC_DEFINE([$3])
       $3=yes
     else
@@ -164,10 +172,10 @@ AC_ARG_ENABLE([modules],
   AS_HELP_STRING([--enable-modules], [all/none/reset or : separated list such as +crystallization:-bias default: reset]),
   [
    rm -f src/*.on src/*.off
-   if test "${enableval}" == yes ; then
+   if test "${enableval}" = yes ; then
      enableval=reset
    fi
-   if test "${enableval}" == no ; then
+   if test "${enableval}" = no ; then
      enableval=none
    fi
    for modules_mod in `echo "${enableval}" | sed 's/:/ /g' | sed 's/+/ +/g' | sed 's/-/ -/g'`
@@ -188,6 +196,9 @@ AC_ARG_ENABLE([modules],
        modules_mod=`echo "${modules_mod}" | sed "s|-||"`
        if test ! -f src/$modules_mod/module.type ; then
          AC_MSG_ERROR([trying to remove module $modules_mod which does not exist])
+       fi
+       if grep -q always src/$modules_mod/module.type ; then
+         AC_MSG_ERROR([trying to remove module $modules_mod which is always enabled])
        fi
        AC_MSG_NOTICE([Disabling module ${modules_mod}])
        rm -f src/$modules_mod.on
@@ -273,6 +284,7 @@ PLUMED_CONFIG_ENABLE([rtld_default],[search for RTLD_DEFAULT macro],[yes])
 PLUMED_CONFIG_ENABLE([chdir],[search for chdir function],[yes])
 PLUMED_CONFIG_ENABLE([subprocess],[search for functions needed to manage a subprocess],[yes])
 PLUMED_CONFIG_ENABLE([getcwd],[search for getcwd function],[yes])
+PLUMED_CONFIG_ENABLE([popen],[search for popen],[yes])
 PLUMED_CONFIG_ENABLE([execinfo],[search for execinfo],[yes])
 PLUMED_CONFIG_ENABLE([gsl],[search for gsl],[yes])
 PLUMED_CONFIG_ENABLE([boost_graph],[search for boost graph],[no])
@@ -282,6 +294,7 @@ PLUMED_CONFIG_ENABLE([python],[search for python],[yes])
 PLUMED_CONFIG_ENABLE([af_ocl],[search for arrayfire_ocl],[no])
 PLUMED_CONFIG_ENABLE([af_cuda],[search for arrayfire_cuda],[no])
 PLUMED_CONFIG_ENABLE([af_cpu],[search for arrayfire_cpu],[no])
+PLUMED_CONFIG_ENABLE([libtorch],[search for libtorch],[no]) #added by luigibonati
 
 AC_ARG_VAR(SOEXT,[extension of dynamic libraries (so/dylib)])
 AC_ARG_VAR(STATIC_LIBS,[variables that should be linked statically directly to MD code - configure will add here -ldl if necessary ])
@@ -312,7 +325,7 @@ case `(uname)` in
 esac
 
 # if searching for MPI, try first mpi-like compilers
-if test $mpi == true ; then
+if test $mpi = true ; then
 compilers="mpic++ mpicxx mpiicpc openmpic++ openmpicxx $compilers"
 fi
 
@@ -345,13 +358,13 @@ AC_MSG_NOTICE([Initial LDSHARED:    $LDSHARED])
 AC_MSG_NOTICE([Initial SOEXT:       $SOEXT])
 
 # check C++ flags
-if test $shared == true
+if test $shared = true
 then
   PLUMED_CHECK_CXXFLAG([-fPIC])
   PLUMED_CHECK_CFLAG([-fPIC])
 fi
 
-if test $basic_warnings == true
+if test $basic_warnings = true
 then
   PLUMED_CHECK_CXXFLAG([-Wall])
   PLUMED_CHECK_CXXFLAG([-pedantic])
@@ -362,12 +375,12 @@ then
   PLUMED_CHECK_CXXFLAG([-std=c++$cxx_level])
 fi
 
-if test $debug == true
+if test $debug = true
 then
   PLUMED_CHECK_CXXFLAG([-g])
 fi
 
-if test $gcov == true
+if test $gcov = true
 then
   CXX="$CXX --coverage"
   LDSHARED="$LDSHARED --coverage"
@@ -376,7 +389,7 @@ then
   STATIC_LIBS="$STATIC_LIBS --coverage"
 fi
 
-if test $fussy == true
+if test $fussy = true
 then
   PLUMED_CHECK_CXXFLAG([-Wextra])
   PLUMED_CHECK_CXXFLAG([-Wfloat-equal])
@@ -498,28 +511,28 @@ lapack_found=
 
 # external lapack can only work with external blas
 # thus, if external blas are disabled also external lapack should be disabled
-if test "$external_blas" == false && test "$external_lapack" == true ; then
+if test "$external_blas" = false && test "$external_lapack" = true ; then
   AC_MSG_NOTICE([Internal blas can only be used with internal lapack])
   AC_MSG_NOTICE([Will not search for external lapack])
   external_lapack=false
 fi
 
 # first look for blas
-if test "$external_blas" == true ; then
-  AC_MSG_CHECKING([whether dgemv can be linked with no library])
-  AC_LINK_IFELSE([AC_LANG_CALL([], [dgemv])],[
+if test "$external_blas" = true ; then
+  AC_MSG_CHECKING([whether dgemv_ can be linked with no library])
+  AC_LINK_IFELSE([AC_LANG_CALL([], [dgemv_])],[
     AC_MSG_RESULT([yes])
-    blas_found=nounderscore
+    blas_found=underscore
     ],[
     AC_MSG_RESULT([no])
     AC_MSG_CHECKING([whether dgemv_ can be linked with no library])
-    AC_LINK_IFELSE([AC_LANG_CALL([], [dgemv_])],[
+    AC_LINK_IFELSE([AC_LANG_CALL([], [dgemv])],[
       AC_MSG_RESULT([yes])
-      blas_found=underscore
+      blas_found=nounderscore
     ],[
       AC_MSG_RESULT([no])
-      PLUMED_SEARCH_LIBS([dgemv],[blas],[blas_found=nounderscore],[
-        PLUMED_SEARCH_LIBS([dgemv_],[blas],[blas_found=underscore])
+      PLUMED_SEARCH_LIBS([dgemv_],[blas],[blas_found=underscore],[
+        PLUMED_SEARCH_LIBS([dgemv],[blas],[blas_found=nounderscore])
       ])
     ])
   ])
@@ -535,7 +548,7 @@ if test -n "$blas_found" ; then
 
 AC_DEFINE([__PLUMED_HAS_EXTERNAL_BLAS])
 
-if test "$external_lapack" == true ; then
+if test "$external_lapack" = true ; then
 # Then we look for lapack using same underscoring
 case "$blas_found" in
 (underscore) search_for=dsyevr_ ;;
@@ -556,7 +569,7 @@ fi
 # in case external blas have been found, take note of their underscoring
 # notice that this applies also when external blas are used with internal lapack
 # in the latter case, also (internal) lapack names will be underscored consistently
-if test "$blas_found" == nounderscore
+if test "$blas_found" = nounderscore
 then
   AC_DEFINE([F77_NO_UNDERSCORE])
 fi
@@ -595,7 +608,7 @@ AC_RUN_IFELSE([AC_LANG_SOURCE([PLUMED_TEST_SDOT([float])])],
   [ AC_MSG_RESULT([not checked (cross compiling)]) ]
 )
 
-if test "$sdot_returns_float" == no ;
+if test "$sdot_returns_float" = no ;
 then
 
 AC_MSG_CHECKING([whether sdot returns double])
@@ -637,14 +650,14 @@ AC_MSG_NOTICE([Now we will check for optional headers and libraries])
 # GB
 #############################################################
 
-if test $molfile_plugins == true ; then
+if test $molfile_plugins = true ; then
 
 # Check for molfile_plugins and use internal fallback if not found. TG
 
 # We always have molfile, now
 AC_DEFINE([__PLUMED_HAS_MOLFILE_PLUGINS])
 
-  if test "$external_molfile_plugins" == true ; then
+  if test "$external_molfile_plugins" = true ; then
     PLUMED_CHECK_PACKAGE([libmolfile_plugin.h],[molfile_dcdplugin_init],[__PLUMED_HAS_EXTERNAL_MOLFILE_PLUGINS],molfile_plugin)
     if test "$__PLUMED_HAS_EXTERNAL_MOLFILE_PLUGINS" != yes ; then
       AC_MSG_WARN([using internal molfile_plugins, which only support dcd/xtc/trr/trj/crd files])
@@ -661,7 +674,7 @@ AC_CHECK_LIB([dl],dlopen, [STATIC_LIBS="-ldl $STATIC_LIBS"] [LIBS="-ldl $LIBS"])
 
 mpi_found=ko
 # optional libraries follow
-if test $mpi == true ; then
+if test $mpi = true ; then
   PLUMED_CHECK_PACKAGE([mpi.h],[MPI_Init],[__PLUMED_HAS_MPI])
   if test "$__PLUMED_HAS_MPI" = yes; then
     mpi_found=ok
@@ -674,7 +687,7 @@ fi
 # when configuring with --disable-openmp
 AC_OPENMP
 
-if test $asmjit == true ; then
+if test $asmjit = true ; then
   AC_MSG_CHECKING([whether architecture is X86/X64])
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
 #if !(defined(_M_IX86 ) || defined(__X86__ ) || defined(__i386  ) || \
@@ -691,12 +704,12 @@ this_is_not_x86_x64
   x86_x64=false])
 fi
 
-if test $asmjit == true && test $x86_x64 == false ; then
+if test $asmjit = true && test $x86_x64 = false ; then
   AC_MSG_WARN([asmjit does not support this architecture, it will be disabled])
   asmjit=false
 fi
 
-if test $asmjit == true ; then
+if test $asmjit = true ; then
   found=ko
 # asmjit calls clock_gettime and thus should be linked to rt on Linux
   if test `(uname)` = Linux ; then
@@ -713,17 +726,17 @@ if test $asmjit == true ; then
 fi
 
 
-if test $readdir_r == true ; then
+if test $readdir_r = true ; then
   PLUMED_CHECK_PACKAGE([dirent.h],[readdir_r],[__PLUMED_HAS_READDIR_R])
 fi
-if test $cregex == true ; then
+if test $cregex = true ; then
   PLUMED_CHECK_PACKAGE([regex.h],[regcomp],[__PLUMED_HAS_CREGEX])
 fi
-if test $dlopen == true ; then
+if test $dlopen = true ; then
   PLUMED_CHECK_PACKAGE([dlfcn.h],[dlopen],[__PLUMED_HAS_DLOPEN])
 fi
 
-if test $rtld_default == true ; then
+if test $rtld_default = true ; then
   PLUMED_CHECK_CXX_PACKAGE([RTLD_DEFAULT],[
 #include <dlfcn.h>
 int
@@ -735,11 +748,11 @@ main ()
   ], [__PLUMED_HAS_RTLD_DEFAULT])
 fi
 
-if test $chdir == true ; then
+if test $chdir = true ; then
   PLUMED_CHECK_PACKAGE([unistd.h],[chdir],[__PLUMED_HAS_CHDIR])
 fi
 
-if test $subprocess == true ; then
+if test $subprocess = true ; then
   PLUMED_CHECK_CXX_PACKAGE([subprocess],[
 /* random program calling all the functions needed to manage a subprocess */
 #include <cstdio>
@@ -774,32 +787,36 @@ main ()
   ], [__PLUMED_HAS_SUBPROCESS])
 fi
 
-if test $getcwd == true ; then
+if test $getcwd = true ; then
   PLUMED_CHECK_PACKAGE([unistd.h],[getcwd],[__PLUMED_HAS_GETCWD])
 fi
 
-if test $execinfo == true ; then
+if test $popen = true ; then
+  PLUMED_CHECK_PACKAGE([cstdio],[popen],[__PLUMED_HAS_POPEN])
+fi
+
+if test $execinfo = true ; then
   PLUMED_CHECK_PACKAGE([execinfo.h],[backtrace],[__PLUMED_HAS_EXECINFO])
 fi
-if test $zlib == true ; then
+if test $zlib = true ; then
   PLUMED_CHECK_PACKAGE([zlib.h],[gzopen],[__PLUMED_HAS_ZLIB],[z])
 fi
 
-if test $gsl == true ; then
+if test $gsl = true ; then
   found=ko
   PLUMED_SEARCH_LIBS([cblas_dgemv],[gslcblas], [
     AC_CHECK_HEADER(  [gsl/gsl_vector.h], [
       PLUMED_SEARCH_LIBS([gsl_vector_alloc],[gsl],[found=ok])
     ])
   ])
-  if test $found == ok ; then
+  if test $found = ok ; then
     AC_DEFINE([__PLUMED_HAS_GSL])
   else
     AC_MSG_WARN([cannot enable __PLUMED_HAS_GSL])
   fi
 fi
 
-if test $boost_graph == true ; then
+if test $boost_graph = true ; then
   PLUMED_CHECK_CXX_PACKAGE([boost graph],[
 #include <boost/graph/graph_utility.hpp>
 #include <boost/graph/adjacency_matrix.hpp>
@@ -813,7 +830,7 @@ main ()
   ], [__PLUMED_HAS_BOOST_GRAPH])
 fi
 
-if test $boost_serialization == true ; then
+if test $boost_serialization = true ; then
   PLUMED_CHECK_CXX_PACKAGE([boost serialization],[
 #include <fstream>
 #include <boost/archive/text_oarchive.hpp>
@@ -826,11 +843,11 @@ int main() {
 # notice: macports install libraries with -mt suffix
 fi
 
-if test $fftw == true ; then
+if test $fftw = true ; then
   PLUMED_CHECK_PACKAGE([fftw3.h],[fftw_execute],[__PLUMED_HAS_FFTW],[fftw3])
 fi
 
-if test $python == true  ; then
+if test $python = true  ; then
 # if PYTHON_BIN is defined, it is expected to be the full path to python
 # Otherwise, search from a list of names:
   if test -z "$PYTHON_BIN" ; then
@@ -839,18 +856,14 @@ if test $python == true  ; then
   if test -n "$PYTHON_BIN"
   then
     AC_MSG_NOTICE([Python executable is $PYTHON_BIN])
-    AC_MSG_CHECKING([support for required python modules (python3, setuptools, cython, subprocess, os, shutil)])
+    AC_MSG_CHECKING([support for required python modules (python3, setuptools, cython)])
 testimport="
 from setuptools import setup
 from setuptools import Extension
-import subprocess
-import os
-import os.path
-import sys
-from shutil import copyfile
 from Cython.Build import cythonize
+import sys
 if sys.version_info < (3,):
-    raise ImportError('PLUMED 2.6 only supports Python 3')
+    raise ImportError('PLUMED>= 2.6 only supports Python 3')
 "
     if echo "$testimport" | "$PYTHON_BIN" 1>/dev/null 2>/dev/null;  then
        AC_MSG_RESULT([yes])
@@ -865,18 +878,33 @@ if sys.version_info < (3,):
   fi
 fi
 
-if test "$af_ocl" == true ; then
+if test "$af_ocl" = true ; then
   PLUMED_CHECK_PACKAGE([arrayfire.h],[af_is_double],[__PLUMED_HAS_ARRAYFIRE],[afopencl])
 fi
-if test "$af_cuda" == true ; then
+if test "$af_cuda" = true ; then
   PLUMED_CHECK_PACKAGE([arrayfire.h],[af_is_double],[__PLUMED_HAS_ARRAYFIRE],[afcuda])
 fi
-if test "$af_cpu" == true ; then
+if test "$af_cpu" = true ; then
   PLUMED_CHECK_PACKAGE([arrayfire.h],[af_is_double],[__PLUMED_HAS_ARRAYFIRE],[afcpu])
 fi
 
+#added by luigibonati
+if test $libtorch = true ; then 
+  # enable c++14 support
+  PLUMED_CHECK_CXXFLAG([-std=c++14])
+  # test program
+  PLUMED_CHECK_CXX_PACKAGE([libtorch],[
+#include <torch/torch.h>
+#include <torch/script.h>
+int main() {
+  torch::Tensor tensor = torch::rand({2, 3});
+  return 0;
+}
+  ], [__PLUMED_HAS_LIBTORCH], [ torch_cpu c10 ], [true])
+fi
+
 # in non-debug mode, add -DNDEBUG
-if test "$debug" == false ; then
+if test "$debug" = false ; then
   AC_MSG_NOTICE([Release mode, adding -DNDEBUG])
   AC_DEFINE([NDEBUG])
 fi
@@ -885,7 +913,7 @@ AC_SUBST(use_debug_glibcxx)
 # in debug-glibcxx mode, add -D_GLIBCXX_DEBUG
 # also take note that we are using this to relax `make nmcheck`
 use_debug_glibcxx=no
-if test "$debug_glibcxx" == true ; then
+if test "$debug_glibcxx" = true ; then
   AC_MSG_NOTICE([Check boundaries, adding -D_GLIBCXX_DEBUG])
   AC_DEFINE([_GLIBCXX_DEBUG])
   use_debug_glibcxx=yes
@@ -898,6 +926,7 @@ AC_DEFINE([_REENTRANT])
 #### Options for dynamic library to work properly ####
 AC_SUBST(SOEXT)
 AC_SUBST(LDSHARED)
+AC_SUBST(LD_MAIN_RUNPATH)
 # these are libraries that should be linked also to MD engines
 AC_SUBST(STATIC_LIBS)
 # python executable
@@ -905,7 +934,7 @@ AC_SUBST(PYTHON_BIN)
 
 AC_SUBST(MPIEXEC)
 
-if test "$shared" == true ; then
+if test "$shared" = true ; then
   case `(uname)` in
   (Darwin)
     AC_MSG_NOTICE([*** Special settings for dynamic libraries on OSX ***])
@@ -925,7 +954,7 @@ if test "$shared" == true ; then
     SOEXT=so
     LDSHARED="$LDSHARED -shared"
     PLUMED_CHECK_LDFLAGS([-rdynamic])
-    if test "$bsymbolic" == true ; then
+    if test "$bsymbolic" = true ; then
       PLUMED_CHECK_LDFLAGS([-Wl,-Bsymbolic])
     fi
   ;;
@@ -956,11 +985,17 @@ then
     rm -f conftest.$SOEXT
     readelf=""
     AC_CHECK_PROG([readelf],[readelf],[found])
-    if test "$readelf" == found ; then
+    if test "$readelf" = found ; then
       test_LDSHARED="$LDSHARED -Wl,-R -Wl,/some/random/dir/"
       $test_LDSHARED $LDFLAGS conftest.o -o conftest.$SOEXT 1>/dev/null 2>/dev/null
       if readelf -d conftest.$SOEXT | grep RPATH | grep -q /some/random/dir ; then
-        LDSHARED="$LDSHARED -Wl,-R -Wl,\"$LIBRARY_PATH\""
+        LD_MAIN_RUNPATH="-Wl,-R -Wl,\"$libdir:$LIBRARY_PATH\""
+        LDSHARED="$LDSHARED $LD_MAIN_RUNPATH"
+        AC_MSG_NOTICE([Enabling RPATH])
+      elif readelf -d conftest.$SOEXT | grep RUNPATH | grep -q /some/random/dir ; then
+        LD_MAIN_RUNPATH="-Wl,-R -Wl,\"$libdir:$LIBRARY_PATH\""
+        LDSHARED="$LDSHARED $LD_MAIN_RUNPATH"
+        AC_MSG_NOTICE([Enabling RUNPATH])
       else
         AC_MSG_WARN([-R option seems not working, disabling rpath])
       fi
@@ -974,17 +1009,17 @@ fi
 
 AC_SUBST(make_doc)
 make_doc=no
-if test "$doc" == true
+if test "$doc" = true
 then
 
 make_doc=yes
 
 ### Look for doxygen
 AC_CHECK_PROG([doxygen],[doxygen],[found])
-if test "$doxygen" == found
+if test "$doxygen" = found
 then
   doxygen_version=`doxygen --version | awk 'BEGIN{FS="."}{if($1>1 || ($1==1 && $2>=8)) print "ok"}'`
-  if test "$doxygen_version" == ok
+  if test "$doxygen_version" = ok
   then
     AC_MSG_NOTICE([Doxygen version is fine])
   else
@@ -1010,7 +1045,7 @@ fi
 
 AC_SUBST(make_pdfdoc)
 make_pdfdoc=""
-if test "$pdfdoc" == true && test "$make_doc" == yes
+if test "$pdfdoc" = true && test "$make_doc" = yes
 then
   AC_MSG_NOTICE([A PDF version of the manual will be generated])
   make_pdfdoc=yes
@@ -1044,7 +1079,7 @@ int main(int argc,char*argv[[]]){
   [ program_can_run=no ; AC_MSG_RESULT([no (cross compiling)]) ]
 )
 
-if test $mpi_found == ok ; then
+if test $mpi_found = ok ; then
 AC_SUBST(program_can_run_mpi)
 program_can_run_mpi=""
 AC_MSG_CHECKING([whether a program compiled with mpi can be run on this machine])
@@ -1067,7 +1102,7 @@ int main(int argc,char*argv[[]]){
 )
 fi
 
-if test $mpi_found == ok ; then
+if test $mpi_found = ok ; then
   if test -n "$MPIEXEC" ; then
     AC_MSG_NOTICE([Regtest suite will use $MPIEXEC command to run MPI tests])
   else
@@ -1075,15 +1110,15 @@ if test $mpi_found == ok ; then
   fi
 fi
 
-if test "$SOEXT" == "dylib" ; then
+if test "$SOEXT" = "dylib" ; then
   use_absolute_soname=yes
 else
   use_absolute_soname=no
 fi
 
 AC_SUBST(use_absolute_soname)
-if test "$absolute_soname" == true ; then
-  if test "$SOEXT" == "dylib" ; then
+if test "$absolute_soname" = true ; then
+  if test "$SOEXT" = "dylib" ; then
     AC_MSG_WARN([--enable-absolute-soname has no effect on OSX])
   else
     AC_MSG_NOTICE([enabling absolute soname. Full path will be hardcoded in plumed library soname])
@@ -1091,8 +1126,8 @@ if test "$absolute_soname" == true ; then
   fi
 fi
 
-if test "$absolute_install_name" == false ; then
-  if test "$SOEXT" == "so" ; then
+if test "$absolute_install_name" = false ; then
+  if test "$SOEXT" = "so" ; then
     AC_MSG_WARN([--disable-absolute-install-name has no effect on Linux])
   else
     AC_MSG_NOTICE([enabling relative install_name. You will have to set DYLD_LIBRARY_PATH yor plumed libraries to be found at runtime])
@@ -1101,8 +1136,8 @@ if test "$absolute_install_name" == false ; then
 fi
 
 AC_SUBST(use_loader_path)
-if test "$SOEXT" == "dylib" ; then
-  if test "$loader_path" == true ; then
+if test "$SOEXT" = "dylib" ; then
+  if test "$loader_path" = true ; then
     use_loader_path=yes
   else
     use_loader_path=no
@@ -1116,7 +1151,7 @@ AC_MSG_NOTICE([PLUMED seems to be configured properly!])
 AC_MSG_NOTICE([**************************])
 AC_SUBST(LD_RO)
 LD_RO=
-if test "$ld_r" == true ; then
+if test "$ld_r" = true ; then
 for test_LD_RO in "$($CXX --print-prog-name=ld) -r -o" "$CXX -Wl,-r -o" "ld -r -o"
 do
   AC_MSG_CHECKING([whether C++ objects can be grouped with $test_LD_RO])
@@ -1157,7 +1192,7 @@ fi
 
 AC_SUBST(AR_CR)
 AR_CR=
-if test "$ar_cr" == true ; then
+if test "$ar_cr" = true ; then
 for test_AR_CR in "$($CXX --print-prog-name=ar) cr" "ar cr"
 do
   AC_MSG_CHECKING([whether static libraries can be created with $test_AR_CR])
@@ -1199,14 +1234,14 @@ fi
 make_static_archive=no
 AC_SUBST(make_static_archive)
 
-if test "${static_archive}" == true ; then
+if test "${static_archive}" = true ; then
   if test -z "$LD_RO" || test -z "$AR_CR" ; then
     AC_MSG_WARN([no way to create a static archive if ld -ro or ar cr do not work])
     static_archive=false
   fi
 fi
 
-if test "${static_archive}" == true ; then
+if test "${static_archive}" = true ; then
   AC_MSG_CHECKING([whether static-object constructors can be linked from a static archive])
 
   magic_token=c1bc476d093a3a5c67b4530e6c54c633593fe9aa
@@ -1246,7 +1281,7 @@ EOF
   fi
 fi
 
-if test "${static_patch}" == true ; then
+if test "${static_patch}" = true ; then
 
 AC_MSG_NOTICE([I will now check if C++ objects can be linked by C/Fortran compilers])
 AC_MSG_NOTICE([This is relevant if you want to use plumed patch --static on a non-C++ code])
@@ -1285,7 +1320,7 @@ EOF
     $CXX $CXXFLAGS -c conftest.cpp 
 # start search:
     found=
-    if test "${libsearch}" == true ; then
+    if test "${libsearch}" = true ; then
       testlibs="-lstdc++ -lc++ -lmpi_cxx"
     else
       testlibs=""
@@ -1319,7 +1354,7 @@ else
 AC_MSG_NOTICE([Static patching is disabled, thus tests required for static patching will be skipped])
 fi
 
-if test "$prefix" == NONE
+if test "$prefix" = NONE
 then
   prefix=/usr/local
 fi
@@ -1329,7 +1364,7 @@ pkgconfig_bin=""
 AC_PATH_PROGS(pkgconfig_bin,pkg-config)
 
 if test -z "$BASH_COMPLETION_DIR" && test -n "$pkgconfig_bin"; then
-  if test "$prefix" == "$(pkg-config --variable=prefix bash-completion 2>/dev/null)"
+  if test "$prefix" = "$(pkg-config --variable=prefix bash-completion 2>/dev/null)"
   then
     AC_MSG_NOTICE([bash-completion is installed on the same prefix where plumed will be installed])
     if pkg-config --variable=completionsdir bash-completion 2>/dev/null >/dev/null ; then
@@ -1396,8 +1431,8 @@ if test -z "$BASH_COMPLETION_DIR" ; then
   AC_MSG_WARN([**** complete -F _$program_name -o default $program_name])
 fi
 
-if test $mpi == true; then
-  if test $mpi_found == ok; then
+if test $mpi = true; then
+  if test $mpi_found = ok; then
     AC_MSG_NOTICE([**** PLUMED will be compiled using MPI])
   else 
     AC_MSG_WARN([**** PLUMED will NOT be compiled using MPI because MPI have not been found!])
@@ -1406,11 +1441,11 @@ else
     AC_MSG_NOTICE([**** PLUMED will be compiled without MPI])
 fi
 
-if test $program_can_run == no ; then
+if test $program_can_run = no ; then
   AC_MSG_WARN([plumed executable will not run on this machine])
   AC_MSG_WARN([to patch an MD code use 'plumed-patch'])
-elif test $mpi_found == ok ; then
-  if test $program_can_run_mpi == no ; then
+elif test $mpi_found = ok ; then
+  if test $program_can_run_mpi = no ; then
     AC_MSG_WARN([plumed executable will not run on this machine])
     AC_MSG_WARN([unless you invoke it as 'plumed --no-mpi'])
     AC_MSG_WARN([all command line tools are thus available as 'plumed --no-mpi name-of-the-tool'])

@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2011-2021 The plumed team
+   Copyright (c) 2011-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -124,28 +124,31 @@ namespace PLMD {
 }
 
 namespace {
-class Register {
-  std::vector<PlumedMain*> instances;
+// This is an internal tool used to count how many PlumedMain objects have been created
+// and if they were correctly destroyed.
+// When using debug options, it leads to a crash
+// Otherwise, it just prints a message
+class CountInstances {
+  std::atomic<int> counter{};
 public:
-  void add(PlumedMain* instance) {
-    instances.push_back(instance);
+  void increase() noexcept {
+    ++counter;
   }
-  void remove(PlumedMain* instance) {
-    auto it = std::find(instances.begin(), instances.end(), instance);
-    if(it==instances.end()) {
-      std::cerr<<"WARNING: internal inconsistency in allocated PlumedMain instances\n";
-    } else {
-      instances.erase(it);
+  void decrease() noexcept {
+    --counter;
+  }
+  ~CountInstances() {
+    if(counter!=0) {
+      std::cerr<<"WARNING: internal inconsistency in allocated PlumedMain instances (" <<counter<< ")\n";
+#ifndef NDEBUG
+      std::abort();
+#endif
     }
   }
-  ~Register() {
-    if(instances.size()>0) std::cerr<<"PLUMED instances was not properly deallocated in your code: "<<instances.size()<<"\n";
-  }
 };
-
-static Register myregister;
-
+static CountInstances countInstances;
 }
+
 
 PlumedMain::PlumedMain():
   initialized(false),
@@ -166,14 +169,16 @@ PlumedMain::PlumedMain():
   novirial(false),
   detailedTimers(false)
 {
+  increaseReferenceCounter();
   log.link(comm);
   log.setLinePrefix("PLUMED: ");
-  myregister.add(this);
+  // this is at last so as to avoid inconsistencies if an exception is thrown
+  countInstances.increase(); // noexcept
 }
 
 // destructor needed to delete forward declarated objects
 PlumedMain::~PlumedMain() {
-  myregister.remove(this);
+  countInstances.decrease();
 }
 
 /////////////////////////////////////////////////////////////
@@ -289,6 +294,10 @@ void PlumedMain::cmd(const std::string & word,const TypesafePtr & val) {
         CHECK_INIT(initialized,word);
         performCalcNoUpdate();
         break;
+      case cmd_performCalcNoForces:
+        CHECK_INIT(initialized,word);
+        performCalcNoForces();
+        break;
       case cmd_update:
         CHECK_INIT(initialized,word);
         update();
@@ -303,6 +312,12 @@ void PlumedMain::cmd(const std::string & word,const TypesafePtr & val) {
         CHECK_INIT(initialized,word);
         CHECK_NOTNULL(val,word);
         step=val.get<long int>();
+        atoms.startStep();
+        break;
+      case cmd_setStepLongLong:
+        CHECK_INIT(initialized,word);
+        CHECK_NOTNULL(val,word);
+        step=val.get<long long int>();
         atoms.startStep();
         break;
       // words used less frequently:
@@ -384,7 +399,7 @@ void PlumedMain::cmd(const std::string & word,const TypesafePtr & val) {
         break;
       case cmd_getApiVersion:
         CHECK_NOTNULL(val,word);
-        val.set(int(8));
+        val.set(int(9));
         break;
       // commands which can be used only before initialization:
       case cmd_init:
@@ -519,6 +534,7 @@ void PlumedMain::cmd(const std::string & word,const TypesafePtr & val) {
       case cmd_setStopFlag:
         CHECK_INIT(initialized,word);
         CHECK_NOTNULL(val,word);
+        val.get<int*>(); // just check type and discard pointer
         stopFlag=val.copy();
         break;
       case cmd_getExchangesFlag:
@@ -657,19 +673,23 @@ void PlumedMain::init() {
   log<<"Finished setup\n";
 }
 
-void PlumedMain::readInputFile(std::string str) {
+void PlumedMain::readInputFile(const std::string & str) {
   plumed_assert(initialized);
-  log.printf("FILE: %s\n",str.c_str());
+  log<<"FILE: "<<str<<"\n";
   IFile ifile;
   ifile.link(*this);
   ifile.open(str);
   ifile.allowNoEOL();
+  readInputFile(ifile);
+  log<<"END FILE: "<<str<<"\n";
+  log.flush();
+
+}
+
+void PlumedMain::readInputFile(IFile & ifile) {
   std::vector<std::string> words;
   while(Tools::getParsedLine(ifile,words) && !endPlumed) readInputWords(words);
   endPlumed=false;
-  log.printf("END FILE: %s\n",str.c_str());
-  log.flush();
-
   pilots=actionSet.select<ActionPilot*>();
 }
 
@@ -689,31 +709,29 @@ void PlumedMain::readInputLine(const std::string & str) {
 void PlumedMain::readInputLines(const std::string & str) {
   plumed_assert(initialized);
   if(str.empty()) return;
-  char tmpname[L_tmpnam];
-  // Generate temporary name
-  // Although tmpnam generates a warning as a deprecated function, it is part of the C++ standard
-  // so it should be ok.
-  {
-    auto ret=std::tmpnam(tmpname);
-    plumed_assert(ret);
-  }
-  // write buffer
-  {
-    FILE* fp=std::fopen(tmpname,"w");
-    plumed_assert(fp);
-    // make sure file is closed also if an exception occurs
-    auto deleter=[](FILE* fp) { std::fclose(fp); };
-    std::unique_ptr<FILE,decltype(deleter)> fp_deleter(fp,deleter);
-    auto ret=std::fputs(str.c_str(),fp);
-    plumed_assert(ret!=EOF);
-  }
-  // read file
-  {
-    // make sure file is deleted also if an exception occurs
-    auto deleter=[](const char* name) { std::remove(name); };
-    std::unique_ptr<char,decltype(deleter)> file_deleter(&tmpname[0],deleter);
-    readInputFile(tmpname);
-  }
+
+  log<<"FILE: (temporary)\n";
+
+  // Open a temporary file
+  auto fp=std::tmpfile();
+  plumed_assert(fp);
+
+  // make sure file is closed (and thus deleted) also if an exception occurs
+  auto deleter=[](FILE* fp) { std::fclose(fp); };
+  std::unique_ptr<FILE,decltype(deleter)> fp_deleter(fp,deleter);
+
+  auto ret=std::fputs(str.c_str(),fp);
+  plumed_assert(ret!=EOF);
+
+  std::rewind(fp);
+
+  IFile ifile;
+  ifile.link(*this);
+  ifile.link(fp);
+  ifile.allowNoEOL();
+
+  readInputFile(ifile);
+  log<<"END FILE: (temporary)\n";
 }
 
 void PlumedMain::readInputWords(const std::vector<std::string> & words) {
@@ -812,6 +830,11 @@ void PlumedMain::performCalcNoUpdate() {
   waitData();
   justCalculate();
   backwardPropagate();
+}
+
+void PlumedMain::performCalcNoForces() {
+  waitData();
+  justCalculate();
 }
 
 void PlumedMain::performCalc() {
@@ -970,7 +993,7 @@ void PlumedMain::load(const std::string& ss) {
       if(comm.Get_size()>0) log<<" (only on master node)";
       log<<"\n";
       if(comm.Get_rank()==0) {
-        int ret=system(cmd.c_str());
+        int ret=std::system(cmd.c_str());
         if(ret!=0) plumed_error() <<"An error happened while executing command "<<cmd<<"\n";
       }
       comm.Barrier();
@@ -1036,6 +1059,18 @@ void PlumedMain::runJobsAtEndOfCalculation() {
   for(const auto & p : actionSet) {
     p->runFinalJobs();
   }
+}
+
+unsigned PlumedMain::increaseReferenceCounter() noexcept {
+  return ++referenceCounter;
+}
+
+unsigned PlumedMain::decreaseReferenceCounter() noexcept {
+  return --referenceCounter;
+}
+
+unsigned PlumedMain::useCountReferenceCounter() const noexcept {
+  return referenceCounter;
 }
 
 #ifdef __PLUMED_HAS_PYTHON

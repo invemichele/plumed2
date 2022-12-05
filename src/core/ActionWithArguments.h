@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2011-2021 The plumed team
+   Copyright (c) 2011-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -68,6 +68,7 @@ public:
   bool parseArgumentList(const std::string&key,int i,std::vector<Value*>&args);
 /// Setup the dependencies
   void requestArguments(const std::vector<Value*> &arg);
+  void requestExtraDependencies(const std::vector<Value*> &extra);
 /// Add forces to arguments (used in apply)
   void addForcesOnArguments( const std::vector<double>& forces );
 public:

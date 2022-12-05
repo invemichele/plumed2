@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2012-2021 The plumed team
+   Copyright (c) 2012-2022 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -23,6 +23,9 @@
 #include "CLToolRegister.h"
 #include "tools/Tools.h"
 #include "core/PlumedMain.h"
+#include "core/ActionSet.h"
+#include "core/ActionWithValue.h"
+#include "core/ActionShortcut.h"
 #include "tools/Communicator.h"
 #include "tools/Random.h"
 #include "tools/Pbc.h"
@@ -197,7 +200,7 @@ public:
   static void registerKeywords( Keywords& keys );
   explicit Driver(const CLToolOptions& co );
   int main(FILE* in,FILE*out,Communicator& pc) override;
-  void evaluateNumericalDerivatives( const long int& step, PlumedMain& p, const std::vector<real>& coordinates,
+  void evaluateNumericalDerivatives( const long long int& step, PlumedMain& p, const std::vector<real>& coordinates,
                                      const std::vector<real>& masses, const std::vector<real>& charges,
                                      std::vector<real>& cell, const double& base, std::vector<real>& numder );
   std::string description()const override;
@@ -222,6 +225,7 @@ void Driver<real>::registerKeywords( Keywords& keys ) {
   keys.add("atoms","--idlp4","the trajectory in DL_POLY_4 format");
   keys.add("atoms","--ixtc","the trajectory in xtc format (xdrfile implementation)");
   keys.add("atoms","--itrr","the trajectory in trr format (xdrfile implementation)");
+  keys.add("optional","--shortcut-ofile","the name of the file to output info on the way shortcuts have been expanded.  If there are no shortcuts in your input file nothing is output");
   keys.add("optional","--length-units","units for length, either as a string or a number");
   keys.add("optional","--mass-units","units for mass in pdb and mc file, either as a string or a number");
   keys.add("optional","--charge-units","units for charge in pdb and mc file, either as a string or a number");
@@ -280,6 +284,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
   // Are we reading trajectory data
   bool noatoms; parseFlag("--noatoms",noatoms);
   bool parseOnly; parseFlag("--parse-only",parseOnly);
+  std::string full_outputfile; parse("--shortcut-ofile",full_outputfile);
   bool restart; parseFlag("--restart",restart);
 
   std::string fakein;
@@ -497,7 +502,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
   PlumedMain p;
   p.cmd("setRealPrecision",(int)sizeof(real));
   int checknatoms=-1;
-  long int step=0;
+  long long int step=0;
   parse("--initial-step",step);
 
   if(restart) p.cmd("setRestart",1);
@@ -515,7 +520,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
   p.cmd("setMDMassUnits",units.getMass());
   p.cmd("setMDEngine","driver");
   p.cmd("setTimestep",timestep);
-  p.cmd("setPlumedDat",plumedFile.c_str());
+  if( !parseOnly || full_outputfile.length()==0 ) p.cmd("setPlumedDat",plumedFile.c_str());
   p.cmd("setLog",out);
 
   int natoms;
@@ -543,6 +548,8 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
       }
       if(use_molfile==true) {
 #ifdef __PLUMED_HAS_MOLFILE_PLUGINS
+        std::unique_ptr<std::lock_guard<std::mutex>> lck;
+        if(api->is_reentrant==VMDPLUGIN_THREADUNSAFE) lck=Tools::molfile_lock();
         h_in = api->open_file_read(trajectoryFile.c_str(), trajectory_fmt.c_str(), &natoms);
         if(natoms==MOLFILE_NUMATOMS_UNKNOWN) {
           if(command_line_natoms>=0) natoms=command_line_natoms;
@@ -597,8 +604,8 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
   std::vector<real> numder;
 
 // variables to test particle decomposition
-  int pd_nlocal;
-  int pd_start;
+  int pd_nlocal=0;
+  int pd_start=0;
 // variables to test random decomposition (=domain decomposition)
   std::vector<int>  dd_gatindex;
   std::vector<int>  dd_g2l;
@@ -606,7 +613,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
   std::vector<real> dd_charges;
   std::vector<real> dd_forces;
   std::vector<real> dd_coordinates;
-  int dd_nlocal;
+  int dd_nlocal=0;
 // random stream to choose decompositions
   Random rnd;
 
@@ -621,6 +628,8 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
     if(!noatoms&&!parseOnly) {
       if(use_molfile==true) {
 #ifdef __PLUMED_HAS_MOLFILE_PLUGINS
+        std::unique_ptr<std::lock_guard<std::mutex>> lck;
+        if(api->is_reentrant==VMDPLUGIN_THREADUNSAFE) lck=Tools::molfile_lock();
         int rc;
         rc = api->read_next_timestep(h_in, natoms, &ts_in);
         if(rc==MOLFILE_EOF) {
@@ -641,7 +650,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
         char xa[9];
         int xb,xc,xd;
         double t;
-        std::sscanf(line.c_str(),"%8s %ld %d %d %d %lf",xa,&step,&xb,&xc,&xd,&t);
+        std::sscanf(line.c_str(),"%8s %lld %d %d %d %lf",xa,&step,&xb,&xc,&xd,&t);
         if (lstep) {
           p.cmd("setTimestep",real(t));
           lstep = false;
@@ -683,6 +692,53 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
       checknatoms=natoms;
       p.cmd("setNatoms",natoms);
       p.cmd("init");
+      // Check if we have been asked to output the long version of the input and if there are shortcuts
+      if( parseOnly && full_outputfile.length()>0 ) {
+
+        // Read in the plumed input file and store what is in there
+        std::map<std::string,std::vector<std::string> > data;
+        IFile ifile; ifile.open(plumedFile); std::vector<std::string> words;
+        while( Tools::getParsedLine(ifile,words) && !p.getEndPlumed() ) {
+          p.readInputWords(words); Action* aa=p.getActionSet()[p.getActionSet().size()-1].get();
+          ActionWithValue* av=dynamic_cast<ActionWithValue*>(aa);
+          if( av && aa->getDefaultString().length()>0 ) {
+            std::vector<std::string> def; def.push_back( "defaults " + aa->getDefaultString() );
+            data[ aa->getLabel() ] = def;
+          }
+          ActionShortcut* as=dynamic_cast<ActionShortcut*>( aa );
+          if( as ) {
+            if( aa->getDefaultString().length()>0 ) {
+              std::vector<std::string> def; def.push_back( "defaults " + aa->getDefaultString() );
+              data[ as->getShortcutLabel() ] = def;
+            }
+            if( data.find( as->getShortcutLabel() )!=data.end() ) {
+              std::vector<std::string> shortcut_commands = as->getSavedInputLines();
+              for(unsigned i=0; i<shortcut_commands.size(); ++i) data[ as->getShortcutLabel() ].push_back( shortcut_commands[i] );
+            } else data[ as->getShortcutLabel() ] = as->getSavedInputLines();
+          }
+        }
+        ifile.close();
+        // Only output the full version of the input file if there are shortcuts
+        if( data.size()>0 ) {
+          OFile long_file; long_file.open( full_outputfile ); long_file.printf("{\n"); bool firstpass=true;
+          for(auto& x : data ) {
+            if( !firstpass ) long_file.printf("   },\n");
+            long_file.printf("   \"%s\" : {\n", x.first.c_str() );
+            plumed_assert( x.second.size()>0 ); unsigned sstart=0;
+            if( x.second[0].find("defaults")!=std::string::npos ) {
+              sstart=1; long_file.printf("      \"defaults\" : \"%s\"", x.second[0].substr( 9 ).c_str() );
+              if( x.second.size()>1 ) long_file.printf(",\n"); else long_file.printf("\n");
+            }
+            if( x.second.size()>sstart ) {
+              long_file.printf("      \"expansion\" : \"%s", x.second[sstart].c_str() );
+              for(unsigned j=sstart+1; j<x.second.size(); ++j) long_file.printf("\\n%s", x.second[j].c_str() );
+              long_file.printf("\"\n");
+            }
+            firstpass=false;
+          }
+          long_file.printf("   }\n}\n"); long_file.close();
+        }
+      }
       if(parseOnly) break;
     }
     if(checknatoms!=natoms) {
@@ -905,7 +961,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
 
       }
 
-      p.cmd("setStepLong",step);
+      p.cmd("setStepLongLong",step);
       p.cmd("setStopFlag",&plumedStopCondition);
 
       if(debug_dd) {
@@ -932,7 +988,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
       p.cmd("setBox",cell.data(),9);
       p.cmd("setVirial",virial.data(),9);
     } else {
-      p.cmd("setStepLong",step);
+      p.cmd("setStepLongLong",step);
       p.cmd("setStopFlag",&plumedStopCondition);
     }
     p.cmd("calc");
@@ -1026,7 +1082,11 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
   if(fp && fp!=in)fclose(fp);
   if(xd) xdrfile::xdrfile_close(xd);
 #ifdef __PLUMED_HAS_MOLFILE_PLUGINS
-  if(h_in) api->close_file_read(h_in);
+  if(h_in) {
+    std::unique_ptr<std::lock_guard<std::mutex>> lck;
+    if(api->is_reentrant==VMDPLUGIN_THREADUNSAFE) lck=Tools::molfile_lock();
+    api->close_file_read(h_in);
+  }
 #endif
   if(grex_log) fclose(grex_log);
 
@@ -1034,7 +1094,7 @@ int Driver<real>::main(FILE* in,FILE*out,Communicator& pc) {
 }
 
 template<typename real>
-void Driver<real>::evaluateNumericalDerivatives( const long int& step, PlumedMain& p, const std::vector<real>& coordinates,
+void Driver<real>::evaluateNumericalDerivatives( const long long int& step, PlumedMain& p, const std::vector<real>& coordinates,
     const std::vector<real>& masses, const std::vector<real>& charges,
     std::vector<real>& cell, const double& base, std::vector<real>& numder ) {
 
@@ -1048,7 +1108,7 @@ void Driver<real>::evaluateNumericalDerivatives( const long int& step, PlumedMai
   for(int i=0; i<natoms; ++i) {
     for(unsigned j=0; j<3; ++j) {
       pos[i][j]=pos[i][j]+delta;
-      p.cmd("setStepLong",step);
+      p.cmd("setStepLongLong",step);
       p.cmd("setPositions",&pos[0][0],3*natoms);
       p.cmd("setForces",&fake_forces[0],3*natoms);
       p.cmd("setMasses",&masses[0],natoms);
@@ -1072,7 +1132,7 @@ void Driver<real>::evaluateNumericalDerivatives( const long int& step, PlumedMai
       for(int j=0; j<natoms; ++j) pos[j]=pbc.realToScaled( pos[j] );
       cell[3*i+k]=box(i,k)=box(i,k)+delta; pbc.setBox(box);
       for(int j=0; j<natoms; j++) pos[j]=pbc.scaledToReal( pos[j] );
-      p.cmd("setStepLong",step);
+      p.cmd("setStepLongLong",step);
       p.cmd("setPositions",&pos[0][0],3*natoms);
       p.cmd("setForces",&fake_forces[0],3*natoms);
       p.cmd("setMasses",&masses[0],natoms);
