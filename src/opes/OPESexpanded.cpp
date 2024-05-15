@@ -137,10 +137,13 @@ private:
 
   double kbt_;
   unsigned stride_;
+  unsigned pace_;
   unsigned deltaF_size_; //different from deltaF_.size() if NumParallel_>1
   std::vector<double> deltaF_;
+  std::vector<double> deltaF_active_;
   std::vector<double> diff_;
   double rct_;
+  double rct_active_;
 
   std::vector<double> all_deltaF_;
   std::vector<int> all_size_;
@@ -184,10 +187,11 @@ void OPESexpanded::registerKeywords(Keywords& keys)
   keys.remove("ARG");
   keys.add("compulsory","ARG","the label of the ECVs that define the expansion. You can use an * to make sure all the output components of the ECVs are used, as in the examples above");
   keys.add("compulsory","PACE","how often the bias is updated");
-  keys.add("compulsory","OBSERVATION_STEPS","100","number of unbiased initial PACE steps to collect statistics for initialization");
+  keys.add("compulsory","PACE_SAMPLES","1","how often to collect statistics for updating the bias. Should be a submultiple of PACE");
+  keys.add("compulsory","OBSERVATION_STEPS","100","number of unbiased initial PACE/PACE_SAMPLES steps to collect statistics for initialization");
 //DeltaFs and state files
   keys.add("compulsory","FILE","DELTAFS","a file with the estimate of the relative Delta F for each component of the target and of the global c(t)");
-  keys.add("compulsory","PRINT_STRIDE","100","stride for printing to DELTAFS file, in units of PACE");
+  keys.add("compulsory","PRINT_STRIDE","100","stride for printing to DELTAFS file, in units of PACE/PACE_SAMPLES");
   keys.add("optional","FMT","specify format for DELTAFS file");
   keys.add("optional","STATE_RFILE","read from this file the Delta F estimates and all the info needed to RESTART the simulation");
   keys.add("optional","STATE_WFILE","write to this file the Delta F estimates and all the info needed to RESTART the simulation");
@@ -213,10 +217,14 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
   , ncv_(getNumberOfArguments())
   , deltaF_size_(0)
   , rct_(0)
+  , rct_active_(0)
   , work_(0)
 {
 //set pace
-  parse("PACE",stride_);
+  parse("PACE",pace_);
+  unsigned pace_samples=1;
+  parse("PACE_SAMPLES",pace_samples);
+  stride_=pace_/pace_samples;
   parse("OBSERVATION_STEPS",obs_steps_);
   plumed_massert(obs_steps_!=0,"minimum is OBSERVATION_STEPS=1");
   obs_cvs_.resize(obs_steps_*ncv_);
@@ -429,6 +437,8 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
       }
       ifile.reset(false);
       ifile.close();
+      deltaF_active_=deltaF_;
+      rct_active_=rct_;
     }
     else //same behaviour as METAD
       plumed_merror("RESTART requested, but file '"+restartFileName+"' was not found!\n  Set RESTART=NO or provide a restart file");
@@ -491,8 +501,9 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
   }
 
 //printing some info
-  log.printf("  updating the bias with PACE = %u\n",stride_);
-  log.printf("  initial unbiased OBSERVATION_STEPS = %u (in units of PACE)\n",obs_steps_);
+  log.printf("  updating the bias with PACE = %u\n",pace_);
+  log.printf("  collecting samples for statistics every PACE/pace_samples = %u\n",stride_);
+  log.printf("  initial unbiased OBSERVATION_STEPS = %u (in units of PACE/pace_samples)\n",obs_steps_);
   if(wStateStride_>0)
     log.printf("  state checkpoints are written on file %s every %d MD steps\n",stateFileName.c_str(),wStateStride_);
   if(wStateStride_==-1)
@@ -534,7 +545,7 @@ void OPESexpanded::calculate()
     #pragma omp for reduction(max:diffMax)
     for(unsigned i=0; i<deltaF_.size(); i++)
     {
-      diff_[i]=(-getExpansion(i)+deltaF_[i]/kbt_);
+      diff_[i]=(-getExpansion(i)+deltaF_active_[i]/kbt_);
       if(diff_[i]>diffMax)
         diffMax=diff_[i];
     }
@@ -645,12 +656,18 @@ void OPESexpanded::update()
       }
     }
 
+    //update the DeltaFs used for computing the bias
+    if(getStep()%pace_==0)
+    { //TODO: avoid coping vector if pace_==stride_ (which is default)
+      deltaF_active_=deltaF_;
+      rct_active_=rct_;
+    }
     //write DeltaFs to file
     if((counter_/NumWalkers_-1)%print_stride_==0)
       printDeltaF();
 
     //calculate work if requested
-    if(calc_work_)
+    if(calc_work_ && getStep()%pace_==0)
     { //some copy and paste from calculate()
       //get diffMax, to avoid over/underflow
       double diffMax=-std::numeric_limits<double>::max();
@@ -848,21 +865,23 @@ void OPESexpanded::init_fromObs() //This could probably be faster and/or require
 
 //print initialization to file
   log.printf(" ->%4u DeltaFs in total\n",deltaF_size_);
+  deltaF_active_=deltaF_;
+  rct_active_=rct_;
   printDeltaF();
 }
 
 void OPESexpanded::printDeltaF()
 {
   deltaFsOfile_.printField("time",getTime());
-  deltaFsOfile_.printField("rct",rct_);
+  deltaFsOfile_.printField("rct",rct_active_);
   if(NumParallel_==1)
   {
     for(unsigned i=0; i<deltaF_.size(); i++)
-      deltaFsOfile_.printField(deltaF_name_[i],deltaF_[i]);
+      deltaFsOfile_.printField(deltaF_name_[i],deltaF_active_[i]);
   }
   else
   {
-    comm.Allgatherv(deltaF_,all_deltaF_,&all_size_[0],&disp_[0]); //can we avoid using this big vector?
+    comm.Allgatherv(deltaF_active_,all_deltaF_,&all_size_[0],&disp_[0]); //can we avoid using this big vector?
     for(unsigned i=0; i<deltaF_size_; i++)
       deltaFsOfile_.printField(deltaF_name_[i],all_deltaF_[i]);
   }
