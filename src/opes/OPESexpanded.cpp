@@ -188,10 +188,10 @@ void OPESexpanded::registerKeywords(Keywords& keys)
   keys.add("compulsory","ARG","the label of the ECVs that define the expansion. You can use an * to make sure all the output components of the ECVs are used, as in the examples above");
   keys.add("compulsory","PACE","how often the bias is updated");
   keys.add("compulsory","PACE_SAMPLES","1","how often to collect statistics for updating the bias. Should be a submultiple of PACE");
-  keys.add("compulsory","OBSERVATION_STEPS","100","number of unbiased initial PACE/PACE_SAMPLES steps to collect statistics for initialization");
+  keys.add("compulsory","OBSERVATION_STEPS","100","number of unbiased initial PACE steps to collect statistics for initialization");
 //DeltaFs and state files
   keys.add("compulsory","FILE","DELTAFS","a file with the estimate of the relative Delta F for each component of the target and of the global c(t)");
-  keys.add("compulsory","PRINT_STRIDE","100","stride for printing to DELTAFS file, in units of PACE/PACE_SAMPLES");
+  keys.add("compulsory","PRINT_STRIDE","100","stride for printing to DELTAFS file, in units of PACE");
   keys.add("optional","FMT","specify format for DELTAFS file");
   keys.add("optional","STATE_RFILE","read from this file the Delta F estimates and all the info needed to RESTART the simulation");
   keys.add("optional","STATE_WFILE","write to this file the Delta F estimates and all the info needed to RESTART the simulation");
@@ -226,6 +226,7 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
   parse("PACE_SAMPLES",pace_samples);
   stride_=pace_/pace_samples;
   parse("OBSERVATION_STEPS",obs_steps_);
+  obs_steps_*=pace_samples;
   plumed_massert(obs_steps_!=0,"minimum is OBSERVATION_STEPS=1");
   obs_cvs_.resize(obs_steps_*ncv_);
 
@@ -233,6 +234,7 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
   std::string deltaFsFileName;
   parse("FILE",deltaFsFileName);
   parse("PRINT_STRIDE",print_stride_);
+  print_stride_*=pace_samples;
   std::string fmt;
   parse("FMT",fmt);
 //output checkpoint of current state
@@ -502,8 +504,8 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
 
 //printing some info
   log.printf("  updating the bias with PACE = %u\n",pace_);
-  log.printf("  collecting samples for statistics every PACE/pace_samples = %u\n",stride_);
-  log.printf("  initial unbiased OBSERVATION_STEPS = %u (in units of PACE/pace_samples)\n",obs_steps_);
+  log.printf("  collecting samples for statistics every PACE/PACE_SAMPLES = %u\n",stride_);
+  log.printf("  initial unbiased OBSERVATION_STEPS = %u (in units of PACE)\n",obs_steps_/pace_samples);
   if(wStateStride_>0)
     log.printf("  state checkpoints are written on file %s every %d MD steps\n",stateFileName.c_str(),wStateStride_);
   if(wStateStride_==-1)
