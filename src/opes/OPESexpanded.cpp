@@ -417,7 +417,7 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
           }
           ifile.scanField();
           if(count_lines>0) {
-            counter_+=restart_stride;
+            counter_+=restart_stride*stride_/substride_;
           }
           count_lines++;
         }
@@ -539,7 +539,7 @@ void OPESexpanded::calculate() {
     return;
   }
   
-  const auto& active_deltaF = use_substride_ ? active_deltaF_storage_ : deltaF_;
+  const auto& active_deltaF=use_substride_?active_deltaF_storage_:deltaF_;
 //get diffMax, to avoid over/underflow
   double diffMax=-std::numeric_limits<double>::max();
   #pragma omp parallel num_threads(NumOMP_)
@@ -618,7 +618,7 @@ void OPESexpanded::update() {
         log.printf("\nAction %s\n",getName().c_str());
         init_fromObs();
         log.printf("Finished initialization\n\n");
-        counter_=NumWalkers_; //all preliminary observations count 1
+        counter_=NumWalkers_*stride_/substride_; //all preliminary observations count 1
         obs_steps_=0; //no more observation
       }
       return;
@@ -814,26 +814,18 @@ void OPESexpanded::init_fromObs() { //This could probably be faster and/or requi
 
 //initialize deltaF_ from obs
 //for the first point, t=0, the ECVs are calculated by initECVs_observ, setting also any initial guess
-  index_j=0;
+  counter_=1;
   for(unsigned i=0; i<deltaF_.size(); i++)
-    for(unsigned j=0; j<ncv_; j++) {
-      deltaF_[i]+=kbt_*ECVs_[j][index_k_[i][j]];
-    }
+    deltaF_[i]=kbt_*getExpansion(i);
   for(unsigned t=1; t<obs_cvs_.size()/ncv_; t++) { //starts from t=1
     unsigned index_j=0;
     for(unsigned l=0; l<pntrToECVsClass_.size(); l++) {
       pntrToECVsClass_[l]->calculateECVs(&obs_cvs_[t*ncv_+index_j]);
       index_j+=pntrToECVsClass_[l]->getNumberOfArguments();
     }
-    for(unsigned i=0; i<deltaF_.size(); i++) {
-      const double diff_i=(-getExpansion(i)+deltaF_[i]/kbt_-std::log(t));
-      if(diff_i>0) { //save exp from overflow
-        deltaF_[i]-=kbt_*(diff_i+std::log1p(std::exp(-diff_i))+std::log1p(-1./(1.+t)));
-      } else {
-        deltaF_[i]-=kbt_*(std::log1p(std::exp(diff_i))+std::log1p(-1./(1.+t)));
-      }
-    }
+    updateDeltaF(0);
   }
+  rct_=0;
   obs_cvs_.clear();
   if(use_substride_) {
     active_deltaF_storage_=deltaF_;
@@ -914,23 +906,15 @@ void OPESexpanded::dumpStateToFile() {
 void OPESexpanded::updateDeltaF(double bias) {
   plumed_dbg_massert(counter_>0,"deltaF_ must be initialized");
   counter_++;
-  const double arg=(bias-rct_)/kbt_-std::log(counter_-1.);
-  double increment;
-  if(arg>0) { //save exp from overflow
-    increment=kbt_*(arg+std::log1p(std::exp(-arg)));
-  } else {
-    increment=kbt_*(std::log1p(std::exp(arg)));
-  }
+  const double log_nm1=std::log(counter_-1.);
+  const double arg=(bias-rct_)/kbt_-log_nm1;
+  const double increment=kbt_*(std::max(arg,0.0)+std::log1p(std::exp(-std::abs(arg))));
   #pragma omp parallel num_threads(NumOMP_)
   {
     #pragma omp for
     for(unsigned i=0; i<deltaF_.size(); i++) {
-      const double diff_i=(-getExpansion(i)+(bias-rct_+deltaF_[i])/kbt_-std::log(counter_-1.));
-      if(diff_i>0) { //save exp from overflow
-        deltaF_[i]+=increment-kbt_*(diff_i+std::log1p(std::exp(-diff_i)));
-      } else {
-        deltaF_[i]+=increment-kbt_*std::log1p(std::exp(diff_i));
-      }
+      const double diff_i=arg-getExpansion(i)+deltaF_[i]/kbt_;
+      deltaF_[i]+=increment-kbt_*(std::max(diff_i,0.0)+std::log1p(std::exp(-std::abs(diff_i))));
     }
   }
   rct_+=increment+kbt_*std::log1p(-1./counter_);
