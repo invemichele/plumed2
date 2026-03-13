@@ -142,6 +142,10 @@ private:
   std::vector<double> diff_;
   double rct_;
 
+  bool use_substride_;
+  unsigned substride_;
+  std::vector<double> active_deltaF_storage_; //used only if substride_!=stride_
+
   std::vector<double> all_deltaF_;
   std::vector<int> all_size_;
   std::vector<int> disp_;
@@ -183,6 +187,7 @@ void OPESexpanded::registerKeywords(Keywords& keys) {
   keys.remove("ARG");
   keys.add("compulsory","ARG","the label of the ECVs that define the expansion. You can use an * to make sure all the output components of the ECVs are used, as in the examples above");
   keys.add("compulsory","PACE","how often the bias is updated");
+  keys.add("optional","SUBPACE","how often the DeltaF estimates are updated internally. If smaller than PACE, multiple datapoints are collected before updating the bias. Must be a divisor of PACE. Default is SUBPACE=PACE");
   keys.add("compulsory","OBSERVATION_STEPS","100","number of unbiased initial PACE steps to collect statistics for initialization");
 //DeltaFs and state files
   keys.add("compulsory","FILE","DELTAFS","a file with the estimate of the relative Delta F for each component of the target and of the global c(t)");
@@ -215,9 +220,14 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
   , work_(0) {
 //set pace
   parse("PACE",stride_);
+  substride_=stride_;
+  parse("SUBPACE",substride_);
+  plumed_massert(substride_!=0 && stride_%substride_==0,"SUBPACE must be a divisor of PACE");
+  use_substride_=substride_!=stride_;
+
   parse("OBSERVATION_STEPS",obs_steps_);
   plumed_massert(obs_steps_!=0,"minimum is OBSERVATION_STEPS=1");
-  obs_cvs_.resize(obs_steps_*ncv_);
+  obs_cvs_.resize(obs_steps_*stride_/substride_*ncv_);
 
 //deltaFs file
   std::string deltaFsFileName;
@@ -432,6 +442,9 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
         }
       plumed_massert(same_number_of_steps,"RESTART - not all walkers are reading the same file!");
     }
+    if(use_substride_) {
+      active_deltaF_storage_=deltaF_;
+    }
   } else if(restartFileName.length()>0) {
     log.printf(" +++ WARNING +++ the provided STATE_RFILE will be ignored, since RESTART was not requested\n");
   }
@@ -481,6 +494,9 @@ OPESexpanded::OPESexpanded(const ActionOptions&ao)
 
 //printing some info
   log.printf("  updating the bias with PACE = %u\n",stride_);
+  if(use_substride_) {
+    log.printf("  updating the DeltaF estimates with SUBPACE = %u\n",substride_);
+  }
   log.printf("  initial unbiased OBSERVATION_STEPS = %u (in units of PACE)\n",obs_steps_);
   if(wStateStride_>0) {
     log.printf("  state checkpoints are written on file %s every %d MD steps\n",stateFileName.c_str(),wStateStride_);
@@ -522,14 +538,15 @@ void OPESexpanded::calculate() {
   if(deltaF_size_==0) { //no bias before initialization
     return;
   }
-
+  
+  const auto& active_deltaF = use_substride_ ? active_deltaF_storage_ : deltaF_;
 //get diffMax, to avoid over/underflow
   double diffMax=-std::numeric_limits<double>::max();
   #pragma omp parallel num_threads(NumOMP_)
   {
     #pragma omp for reduction(max:diffMax)
     for(unsigned i=0; i<deltaF_.size(); i++) {
-      diff_[i]=(-getExpansion(i)+deltaF_[i]/kbt_);
+      diff_[i]=(-getExpansion(i)+active_deltaF[i]/kbt_);
       if(diff_[i]>diffMax) {
         diffMax=diff_[i];
       }
@@ -591,13 +608,13 @@ void OPESexpanded::update() {
       return;
     }
   }
-  if(getStep()%stride_==0) {
+  if(getStep()%substride_==0) {
     if(obs_steps_>0) {
       for(unsigned j=0; j<ncv_; j++) {
         obs_cvs_[counter_*ncv_+j]=getArgument(j);
       }
       counter_++;
-      if(counter_==obs_steps_) {
+      if(counter_==obs_steps_*stride_/substride_) {
         log.printf("\nAction %s\n",getName().c_str());
         init_fromObs();
         log.printf("Finished initialization\n\n");
@@ -634,15 +651,18 @@ void OPESexpanded::update() {
         updateDeltaF(all_bias[w]);
       }
     }
+    if(use_substride_ && getStep()%stride_==0) {
+      active_deltaF_storage_=deltaF_;
+    }
 
     //write DeltaFs to file
-    if((counter_/NumWalkers_-1)%print_stride_==0) {
+    if((counter_/NumWalkers_-1)%(print_stride_*stride_/substride_)==0) {
       printDeltaF();
     }
 
     //calculate work if requested
-    if(calc_work_) {
-      //some copy and paste from calculate()
+    if(calc_work_ && getStep()%stride_==0) {
+      //some copy and paste from calculate(), but at bias update time, so deltaF_ is always "active"
       //get diffMax, to avoid over/underflow
       double diffMax=-std::numeric_limits<double>::max();
       #pragma omp parallel num_threads(NumOMP_)
@@ -772,13 +792,12 @@ void OPESexpanded::init_linkECVs() {
 void OPESexpanded::init_fromObs() { //This could probably be faster and/or require less memory...
 //in case of multiple walkers gather all the statistics
   if(NumWalkers_>1) {
-    std::vector<double> all_obs_cv(ncv_*obs_steps_*NumWalkers_);
+    std::vector<double> all_obs_cv(obs_cvs_.size()*NumWalkers_);
     if(comm.Get_rank()==0) {
       multi_sim_comm.Allgather(obs_cvs_,all_obs_cv);
     }
     comm.Bcast(all_obs_cv,0);
     obs_cvs_=all_obs_cv; //could this lead to memory issues?
-    obs_steps_*=NumWalkers_;
   }
 
 //initialize ECVs from observations
@@ -800,7 +819,7 @@ void OPESexpanded::init_fromObs() { //This could probably be faster and/or requi
     for(unsigned j=0; j<ncv_; j++) {
       deltaF_[i]+=kbt_*ECVs_[j][index_k_[i][j]];
     }
-  for(unsigned t=1; t<obs_steps_; t++) { //starts from t=1
+  for(unsigned t=1; t<obs_cvs_.size()/ncv_; t++) { //starts from t=1
     unsigned index_j=0;
     for(unsigned l=0; l<pntrToECVsClass_.size(); l++) {
       pntrToECVsClass_[l]->calculateECVs(&obs_cvs_[t*ncv_+index_j]);
@@ -816,6 +835,9 @@ void OPESexpanded::init_fromObs() { //This could probably be faster and/or requi
     }
   }
   obs_cvs_.clear();
+  if(use_substride_) {
+    active_deltaF_storage_=deltaF_;
+  }
 
 //set deltaF_name_
   deltaF_name_.resize(deltaF_size_,"DeltaF");
